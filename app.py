@@ -51,14 +51,26 @@ st.markdown(f"""
 <style>
     .stApp {{ background-color: {COLORS['bg']}; }}
     section[data-testid="stSidebar"] {{ background-color: {COLORS['surface2']}; }}
+
+    /* Force readable text everywhere, regardless of visitor's OS dark-mode setting */
+    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+    div[data-testid="stMarkdownContainer"], div[data-testid="stMarkdownContainer"] p {{
+        color: {COLORS['text']} !important;
+    }}
+    div[data-testid="stCaptionContainer"], .stApp small {{
+        color: {COLORS['text_soft']} !important;
+    }}
+    h1, h2, h3, h4, h5 {{ color: {COLORS['text']} !important; }}
+    section[data-testid="stSidebar"] * {{ color: {COLORS['text']} !important; }}
+
     div[data-testid="stMetric"] {{
         background-color: {COLORS['surface']};
         border: 1px solid {COLORS['border']};
         border-radius: 10px;
         padding: 14px 16px 10px 16px;
     }}
-    div[data-testid="stMetricLabel"] {{ color: {COLORS['text_soft']}; }}
-    div[data-testid="stMetricValue"] {{ color: {COLORS['text']}; }}
+    div[data-testid="stMetricLabel"] {{ color: {COLORS['text_soft']} !important; }}
+    div[data-testid="stMetricValue"] {{ color: {COLORS['text']} !important; }}
     .card {{
         background-color: {COLORS['surface']};
         border: 1px solid {COLORS['border']};
@@ -66,17 +78,16 @@ st.markdown(f"""
         padding: 18px 20px;
         margin-bottom: 14px;
     }}
-    .card h4 {{ color: {COLORS['primary_d']}; margin-top:0; margin-bottom: 10px; }}
+    .card h4 {{ color: {COLORS['primary_d']} !important; margin-top:0; margin-bottom: 10px; }}
     .badge {{
         display:inline-block; padding:3px 10px; border-radius:14px;
         font-size:0.78rem; font-weight:600;
     }}
-    .badge-ok {{ background-color:#E7EEE3; color:{COLORS['primary_d']}; }}
-    .badge-warn {{ background-color:#F4EBD3; color:#7A5E10; }}
-    .badge-risk {{ background-color:#F1DEDA; color:{COLORS['danger']}; }}
-    h1, h2, h3 {{ color: {COLORS['text']}; }}
-    .stTabs [data-baseweb="tab"] {{ color: {COLORS['text_soft']}; }}
-    .stTabs [aria-selected="true"] {{ color: {COLORS['primary_d']}; font-weight:600; }}
+    .badge-ok {{ background-color:#E7EEE3; color:{COLORS['primary_d']} !important; }}
+    .badge-warn {{ background-color:#F4EBD3; color:#7A5E10 !important; }}
+    .badge-risk {{ background-color:#F1DEDA; color:{COLORS['danger']} !important; }}
+    .stTabs [data-baseweb="tab"] {{ color: {COLORS['text_soft']} !important; }}
+    .stTabs [aria-selected="true"] {{ color: {COLORS['primary_d']} !important; font-weight:600; }}
 </style>
 """, unsafe_allow_html=True)
 
