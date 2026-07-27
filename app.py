@@ -236,12 +236,26 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 st.markdown("## Financial Performance Dashboard")
 
-tab_track, tab_scn = st.tabs(["📊  Performance tracker", "🧭  Scenario & resilience"])
+st.markdown(f"""
+<style>
+    div[data-baseweb="select"] > div {{
+        background-color: {COLORS['surface']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        border-radius: 12px !important;
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+section = st.selectbox(
+    "Dashboard section",
+    ["📊  Performance tracker", "🧭  Scenario & resilience"],
+    label_visibility="collapsed",
+)
 
 # ========================================================================
-# TAB A — PERFORMANCE TRACKER
+# SECTION A — PERFORMANCE TRACKER
 # ========================================================================
-with tab_track:
+if section == "📊  Performance tracker":
     st.caption("Where the bakery division stands today")
 
     kpis = [
@@ -300,7 +314,10 @@ with tab_track:
 # ========================================================================
 # TAB B — SCENARIO & RESILIENCE
 # ========================================================================
-with tab_scn:
+# ========================================================================
+# SECTION B — SCENARIO & RESILIENCE
+# ========================================================================
+elif section == "🧭  Scenario & resilience":
     st.caption("What happens if — stress-tests the same cost and margin outputs under new assumptions")
 
     mod1, mod2, mod3, mod4 = st.tabs([
@@ -313,6 +330,7 @@ with tab_scn:
         st.markdown("##### 🔥 Inflation-adjusted cost sensitivity")
         st.caption("Dual-track inflation input with an adjustable bar, net of any subsidy/offset deducted.")
 
+        base_cost = baseline["cost_per_unit"]
         colL, colR = st.columns([1, 1.3])
         with colL:
             with st.container(border=True):
@@ -321,7 +339,26 @@ with tab_scn:
                                       help="Flour, dairy, and packaging inflation can diverge sharply from headline CPI during shocks.")
                 subsidy_offset = st.number_input("Subsidy / price-cap offset (AED per unit)", 0.0, 2.0, 0.05, 0.01)
 
-        base_cost = baseline["cost_per_unit"]
+                st.markdown(f"<div style='margin-top:6px; color:{COLORS['text_soft']}; font-size:0.82rem;'>"
+                            f"Cost composition — updates live with the sliders above</div>", unsafe_allow_html=True)
+                inflation_addon = round(base_cost * food_inf / 100, 3)
+                net_after_subsidy = round(base_cost + inflation_addon - subsidy_offset, 2)
+                donut = go.Figure(go.Pie(
+                    labels=["Base cost", "Inflation add-on"],
+                    values=[base_cost, max(inflation_addon, 0.001)],
+                    hole=0.64, sort=False, textinfo="percent",
+                    marker=dict(colors=[COLORS["text_soft"], COLORS["danger"]],
+                                line=dict(color=COLORS["surface"], width=3)),
+                ))
+                donut.update_layout(
+                    **PLOTLY_DARK, height=220,
+                    legend=dict(orientation="h", y=-0.12, font=dict(color=COLORS["text_soft"])),
+                    annotations=[dict(
+                        text=f"<b>AED {net_after_subsidy:.2f}</b><br><span style='font-size:10px;color:{COLORS['text_soft']}'>net / unit</span>",
+                        x=0.5, y=0.5, font=dict(size=18, color=COLORS['text']), showarrow=False)],
+                )
+                st.plotly_chart(donut, use_container_width=True, config={"displayModeBar": False}, key="inflation_donut")
+
         adj_cost_headline = round(base_cost * (1 + headline_inf / 100) - subsidy_offset, 3)
         adj_cost_food = round(base_cost * (1 + food_inf / 100) - subsidy_offset, 3)
         base_revenue_per_unit = base_cost / (baseline["food_cost_pct"] / 100)
