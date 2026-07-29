@@ -16,6 +16,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import smtplib
+import re
+from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+from fpdf import FPDF
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -194,8 +201,95 @@ category_panels = {
 }
 
 # ----------------------------------------------------------------------
-# SIDEBAR
+# STATUS REPORT (PDF) + EMAIL DELIVERY
 # ----------------------------------------------------------------------
+def build_status_report_pdf():
+    """Builds a one-page PDF snapshot of current KPIs and category panels."""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "Grandiose Bakery - Financial Status Report", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(90, 90, 90)
+    pdf.cell(0, 6, f"Generated {datetime.now().strftime('%d %B %Y, %H:%M')} | GIP III | Bakery division only", ln=True)
+    pdf.ln(4)
+
+    pdf.set_text_color(20, 20, 20)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Headline KPIs", ln=True)
+    pdf.set_font("Helvetica", "", 11)
+    kpi_lines = [
+        f"Food cost %: {baseline['food_cost_pct']}%  (1.2pt above target)",
+        f"Wastage %: {baseline['wastage_pct']}%  (down 0.3pt vs last month)",
+        f"Gross margin: {baseline['gross_margin_pct']}%  (flat vs last month)",
+        f"Cost per unit: AED {baseline['cost_per_unit']:.2f}  (standard: AED {baseline['standard_cost_per_unit']:.2f})",
+    ]
+    for line in kpi_lines:
+        pdf.cell(0, 7, f"- {line}", ln=True)
+    pdf.ln(3)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Category panels", ln=True)
+    for name, metrics in category_panels.items():
+        clean_name = name.split(" ", 1)[-1]  # drop emoji for PDF font compatibility
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 7, clean_name, ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        for k, v in metrics.items():
+            pdf.cell(0, 6, f"    {k}: {v}", ln=True)
+        pdf.ln(1)
+
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(0, 5, "Prepared by Parineeta Jain, Rajveer Singh, and Tarang Gupta. "
+                         "Figures shown are illustrative benchmarks pending Grandiose's actual bakery data. "
+                         "Catering is excluded, per GIP III scope.")
+
+    return bytes(pdf.output())
+
+
+def send_report_email(recipient_email, note=""):
+    """Sends the status-report PDF to recipient_email using SMTP credentials
+    stored in Streamlit secrets. Returns (success: bool, message: str)."""
+    try:
+        sender_email = st.secrets["EMAIL_ADDRESS"]
+        sender_password = st.secrets["EMAIL_APP_PASSWORD"]
+    except (KeyError, FileNotFoundError):
+        return False, ("Email is not configured yet. Add EMAIL_ADDRESS and EMAIL_APP_PASSWORD "
+                        "in Streamlit Cloud's Secrets settings (App settings -> Secrets) — "
+                        "never in the code or GitHub repo.")
+
+    smtp_server = st.secrets.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(st.secrets.get("SMTP_PORT", 587))
+
+    msg = MIMEMultipart()
+    msg["From"] = sender_email
+    msg["To"] = recipient_email
+    msg["Subject"] = "Grandiose Bakery — Financial Status Report"
+    body = ("Hi,\n\nPlease find attached the latest Grandiose bakery financial status report, "
+            "generated from the live dashboard.\n")
+    if note:
+        body += f"\nNote from sender:\n{note}\n"
+    body += "\n— Sent automatically from the Grandiose Bakery Dashboard (GIP III)"
+    msg.attach(MIMEText(body, "plain"))
+
+    pdf_bytes = build_status_report_pdf()
+    attachment = MIMEApplication(pdf_bytes, _subtype="pdf")
+    filename = f"Grandiose_Bakery_Status_Report_{datetime.now().strftime('%Y%m%d')}.pdf"
+    attachment.add_header("Content-Disposition", "attachment", filename=filename)
+    msg.attach(attachment)
+
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+        return True, f"Report sent to {recipient_email}."
+    except Exception as e:
+        return False, f"Could not send email: {e}"
+
+
 st.sidebar.markdown(f"""
 <div style='background-color:{COLORS['surface']}; border:1px solid {COLORS['border']};
      border-radius:14px; padding:16px; margin-bottom:14px;'>
@@ -223,6 +317,23 @@ st.sidebar.markdown(f"""
   ⚠️ All figures shown are illustrative benchmarks pending Grandiose's actual bakery data.
 </div>
 """, unsafe_allow_html=True)
+
+with st.sidebar.expander("📧  Email this report", expanded=False):
+    recipient = st.text_input("Recipient email", placeholder="name@company.com", key="email_recipient")
+    note = st.text_area("Add a note (optional)", key="email_note", height=70)
+    if st.button("Send report", key="send_email_btn", use_container_width=True):
+        email_pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+        if not recipient or not re.match(email_pattern, recipient):
+            st.error("Enter a valid email address.")
+        else:
+            with st.spinner("Sending..."):
+                success, message = send_report_email(recipient, note)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+    st.caption("Sends a one-page PDF snapshot of the current KPIs and category panels.")
+
 
 # ----------------------------------------------------------------------
 # HERO HEADER
