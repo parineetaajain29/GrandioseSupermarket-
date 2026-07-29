@@ -365,13 +365,75 @@ with st.sidebar.expander("📧  Email this report", expanded=False):
 # Supabase is wired up. Data in fallback mode does not persist across
 # app restarts — see README for the one-time Supabase setup.
 # ----------------------------------------------------------------------
+
+# Actual staff breakdown by line/department (approximate headcounts).
+DEPARTMENT_HEADCOUNT = {
+    "Baklava": 10,
+    "French Bakery": 10,
+    "Arabic Bread": 7,
+    "Viennoiserie (Croissant/Danish)": 7,
+    "Tahina": 5,
+    "QC": 3,
+    "Packing & Dispatch": 15,
+    "Store": 2,
+    "Maintenance": 4,
+    "GM": 1,
+    "Office": 10,
+    "Drivers": 7,
+    "Third-Party Cleaners": 10,
+}
+
+# Illustrative sample employees per department (placeholders — swap in
+# Grandiose's real staff names/IDs once available). Not every headcount
+# above has a named entry; these exist so the portal and department
+# comparisons are demoable today.
 EMPLOYEES = [
-    {"name": "Ahmed Khalil", "id": "EMP-101"},
-    {"name": "Fatima Rashid", "id": "EMP-102"},
-    {"name": "Sandeep Kumar", "id": "EMP-103"},
-    {"name": "Mariam Al Suwaidi", "id": "EMP-104"},
-    {"name": "John Dsouza", "id": "EMP-105"},
+    {"name": "Ahmad Yousef", "id": "BAK-01", "department": "Baklava"},
+    {"name": "Rania Haddad", "id": "BAK-02", "department": "Baklava"},
+    {"name": "Mohammed Iqbal", "id": "BAK-03", "department": "Baklava"},
+
+    {"name": "Rahul Nair", "id": "FRB-01", "department": "French Bakery"},
+    {"name": "Fatima Zahra", "id": "FRB-02", "department": "French Bakery"},
+    {"name": "John Cruz", "id": "FRB-03", "department": "French Bakery"},
+
+    {"name": "Khalid Obaid", "id": "ARB-01", "department": "Arabic Bread"},
+    {"name": "Youssef Amer", "id": "ARB-02", "department": "Arabic Bread"},
+    {"name": "Layla Mansour", "id": "ARB-03", "department": "Arabic Bread"},
+
+    {"name": "Ana Reyes", "id": "VIE-01", "department": "Viennoiserie (Croissant/Danish)"},
+    {"name": "Omar Saleh", "id": "VIE-02", "department": "Viennoiserie (Croissant/Danish)"},
+    {"name": "Priya Sharma", "id": "VIE-03", "department": "Viennoiserie (Croissant/Danish)"},
+
+    {"name": "Hassan Ali", "id": "TAH-01", "department": "Tahina"},
+    {"name": "Meera Pillai", "id": "TAH-02", "department": "Tahina"},
+
+    {"name": "Noura Saeed", "id": "QC-01", "department": "QC"},
+    {"name": "Vikram Singh", "id": "QC-02", "department": "QC"},
+
+    {"name": "Josie Santos", "id": "PKD-01", "department": "Packing & Dispatch"},
+    {"name": "Ravi Kumar", "id": "PKD-02", "department": "Packing & Dispatch"},
+    {"name": "Abdullah Nasser", "id": "PKD-03", "department": "Packing & Dispatch"},
+
+    {"name": "Aisha Rahman", "id": "STR-01", "department": "Store"},
+    {"name": "Manuel Cruz", "id": "STR-02", "department": "Store"},
+
+    {"name": "Suresh Pillai", "id": "MNT-01", "department": "Maintenance"},
+    {"name": "Ibrahim Al Farsi", "id": "MNT-02", "department": "Maintenance"},
+
+    {"name": "Khalifa Al Marzooqi", "id": "GM-01", "department": "GM"},
+
+    {"name": "Sara Al Ali", "id": "OFF-01", "department": "Office"},
+    {"name": "Deepak Verma", "id": "OFF-02", "department": "Office"},
+    {"name": "Nadia Haddad", "id": "OFF-03", "department": "Office"},
+
+    {"name": "Mohammed Rafiq", "id": "DRV-01", "department": "Drivers"},
+    {"name": "Carlos Dionisio", "id": "DRV-02", "department": "Drivers"},
+    {"name": "Salim Bakhit", "id": "DRV-03", "department": "Drivers"},
+
+    {"name": "Ganesh Kumar", "id": "CLN-01", "department": "Third-Party Cleaners"},
+    {"name": "Rosa Villanueva", "id": "CLN-02", "department": "Third-Party Cleaners"},
 ]
+
 
 @st.cache_resource
 def get_supabase_client():
@@ -745,20 +807,35 @@ elif section == "👤  Employee portal":
                 "see the **Employee portal setup** section in the README for the exact SQL and secrets to add."
             )
 
-    people_labels = [f"{e['name']} ({e['id']})" for e in EMPLOYEES]
-    identity = st.selectbox(
-        "Who are you?",
-        ["— Select —"] + people_labels + ["🧑‍💼 Manager / HR view"],
-    )
+    with st.expander("🏭 Staff breakdown by line", expanded=False):
+        dep_df = pd.DataFrame(
+            [{"Department": d, "Headcount": c} for d, c in DEPARTMENT_HEADCOUNT.items()]
+        )
+        dep_df.loc[len(dep_df)] = ["Total", dep_df["Headcount"].sum()]
+        st.dataframe(dep_df, width='stretch', hide_index=True)
+        st.caption("Approximate headcounts. A small illustrative sample of named employees per department "
+                   "is used for the interactive demo below — replace with the full roster once available.")
+
+    st.markdown("#### Who are you?")
+    col_d1, col_d2 = st.columns([1, 1.4])
+    with col_d1:
+        dept_choice = st.selectbox("Department", ["🧑‍💼 Manager / HR view"] + list(DEPARTMENT_HEADCOUNT.keys()))
+
+    identity_employee = None
+    if dept_choice != "🧑‍💼 Manager / HR view":
+        dept_employees = [e for e in EMPLOYEES if e["department"] == dept_choice]
+        emp_labels = [f"{e['name']} ({e['id']})" for e in dept_employees]
+        with col_d2:
+            emp_choice = st.selectbox("Employee", ["— Select —"] + emp_labels)
+        if emp_choice != "— Select —":
+            identity_employee = dept_employees[emp_labels.index(emp_choice)]
 
     # -------------------- EMPLOYEE SELF-SERVICE --------------------
-    if identity in people_labels:
-        emp = EMPLOYEES[people_labels.index(identity)]
-        emp_name, emp_id = emp["name"], emp["id"]
+    if identity_employee is not None:
+        emp_name, emp_id, emp_dept = identity_employee["name"], identity_employee["id"], identity_employee["department"]
+        st.markdown(f"<span class='pill pill-ok'>{emp_dept}</span>", unsafe_allow_html=True)
 
-        etab1, etab2, etab3, etab4 = st.tabs(
-            ["📊 My performance", "📝 Daily log", "🎯 Goals & feedback", "🎓 Training & certifications"]
-        )
+        etab1, etab2, etab3 = st.tabs(["📊 My performance", "📝 Daily log", "🎯 Goals & feedback"])
 
         # --- My performance ---
         with etab1:
@@ -819,7 +896,7 @@ elif section == "👤  Employee portal":
                 submitted = st.form_submit_button("Submit shift log", width='stretch')
                 if submitted:
                     ok, err = portal_insert("employee_performance", {
-                        "employee_name": emp_name, "employee_id": emp_id,
+                        "employee_name": emp_name, "employee_id": emp_id, "department": emp_dept,
                         "log_date": str(log_date), "units_produced": int(units),
                         "wastage_pct": float(wastage), "hours_worked": float(hours),
                         "batch_time_adherence_pct": int(batch_adh), "quality_pass_pct": int(quality),
@@ -853,7 +930,7 @@ elif section == "👤  Employee portal":
                 submitted_g = st.form_submit_button("Save", width='stretch')
                 if submitted_g:
                     ok, err = portal_insert("employee_goals", {
-                        "employee_name": emp_name, "employee_id": emp_id,
+                        "employee_name": emp_name, "employee_id": emp_id, "department": emp_dept,
                         "goal_text": goal_text, "self_assessment": self_assessment,
                         "manager_feedback": None,
                     })
@@ -862,55 +939,8 @@ elif section == "👤  Employee portal":
                     else:
                         st.error(f"Could not save: {err}")
 
-        # --- Training & certifications ---
-        with etab4:
-            train_df, err = portal_fetch("employee_training", {"employee_id": emp_id})
-            if err:
-                st.error(f"Could not load training records: {err}")
-            elif not train_df.empty:
-                today = datetime.now().date()
-                for _, row in train_df.iterrows():
-                    exp = row.get("expiry_date")
-                    pill = "pill-ok"
-                    tag = ""
-                    if exp:
-                        try:
-                            exp_date = pd.to_datetime(exp).date()
-                            days_left = (exp_date - today).days
-                            if days_left < 0:
-                                pill, tag = "pill-risk", " · expired"
-                            elif days_left <= 30:
-                                pill, tag = "pill-warn", f" · expires in {days_left}d"
-                        except Exception:
-                            pass
-                    with st.container(border=True):
-                        st.markdown(f"**{row.get('training_name', '—')}**"
-                                    f"<span class='pill {pill}' style='margin-left:8px;'>Completed {row.get('completed_date','—')}{tag}</span>",
-                                    unsafe_allow_html=True)
-            else:
-                st.info("No training records yet.")
-
-            st.markdown("###### Add a completed training / certification")
-            with st.form(f"training_form_{emp_id}", clear_on_submit=True):
-                training_name = st.text_input("Training / certification name", placeholder="e.g. HACCP Food Safety Level 2")
-                colt1, colt2 = st.columns(2)
-                completed_date = colt1.date_input("Completed date", value=datetime.now().date())
-                expiry_date = colt2.date_input("Expiry date (if applicable)", value=None)
-                submitted_t = st.form_submit_button("Save", width='stretch')
-                if submitted_t:
-                    ok, err = portal_insert("employee_training", {
-                        "employee_name": emp_name, "employee_id": emp_id,
-                        "training_name": training_name, "completed_date": str(completed_date),
-                        "expiry_date": str(expiry_date) if expiry_date else None,
-                    })
-                    if ok:
-                        st.success("Saved.")
-                    else:
-                        st.error(f"Could not save: {err}")
-
     # -------------------- MANAGER / HR VIEW --------------------
-    elif identity == "🧑‍💼 Manager / HR view":
-        st.markdown("#### Team performance overview")
+    elif dept_choice == "🧑‍💼 Manager / HR view":
         all_perf, err = portal_fetch("employee_performance")
         if err:
             st.error(f"Could not load team data: {err}")
@@ -920,23 +950,52 @@ elif section == "👤  Employee portal":
             for col in ["units_produced", "wastage_pct", "batch_time_adherence_pct", "quality_pass_pct"]:
                 if col in all_perf.columns:
                     all_perf[col] = pd.to_numeric(all_perf[col], errors="coerce")
-            summary = all_perf.groupby("employee_name").agg(
-                shifts_logged=("employee_name", "count"),
+
+            st.markdown("#### Performance comparison within a department")
+            available_depts = sorted(all_perf["department"].dropna().unique()) if "department" in all_perf.columns else []
+            if not available_depts:
+                st.info("No department data logged yet.")
+            else:
+                dept_filter = st.selectbox("Choose a department to compare", available_depts, key="mgr_dept_filter")
+                dept_perf = all_perf[all_perf["department"] == dept_filter]
+                dept_summary = dept_perf.groupby("employee_name").agg(
+                    shifts_logged=("employee_name", "count"),
+                    avg_units=("units_produced", "mean"),
+                    avg_wastage_pct=("wastage_pct", "mean"),
+                    avg_batch_adherence=("batch_time_adherence_pct", "mean"),
+                    avg_quality_pass=("quality_pass_pct", "mean"),
+                ).round(1).reset_index().sort_values("avg_units", ascending=False)
+
+                with st.container(border=True):
+                    st.markdown(f"**{dept_filter}** — {DEPARTMENT_HEADCOUNT.get(dept_filter, '—')} total headcount on the line, "
+                                f"{dept_perf['employee_name'].nunique()} with logged shifts")
+                    st.dataframe(dept_summary, width='stretch', hide_index=True)
+
+                with st.container(border=True):
+                    fig_dept = go.Figure()
+                    fig_dept.add_trace(go.Bar(x=dept_summary["employee_name"], y=dept_summary["avg_units"],
+                                               name="Avg units/shift", marker_color=COLORS["primary"], marker_line_width=0))
+                    fig_dept.update_layout(**PLOTLY_DARK, height=280, yaxis_title="Avg units / shift",
+                                            yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
+                    st.plotly_chart(fig_dept, width='stretch', config={"displayModeBar": False})
+
+                with st.container(border=True):
+                    fig_dept2 = go.Figure(go.Bar(x=dept_summary["employee_name"], y=dept_summary["avg_wastage_pct"],
+                                                  marker_color=COLORS["secondary"], marker_line_width=0))
+                    fig_dept2.update_layout(**PLOTLY_DARK, height=260, yaxis_title="Avg wastage %",
+                                             yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
+                    st.plotly_chart(fig_dept2, width='stretch', config={"displayModeBar": False})
+
+            st.markdown("#### All departments — overview")
+            dept_overview = all_perf.groupby("department").agg(
+                shifts_logged=("department", "count"),
                 avg_units=("units_produced", "mean"),
                 avg_wastage_pct=("wastage_pct", "mean"),
-                avg_batch_adherence=("batch_time_adherence_pct", "mean"),
-                avg_quality_pass=("quality_pass_pct", "mean"),
-            ).round(1).reset_index().sort_values("avg_units", ascending=False)
-
-            with st.container(border=True):
-                st.dataframe(summary, width='stretch', hide_index=True)
-
-            with st.container(border=True):
-                fig_m = go.Figure(go.Bar(x=summary["employee_name"], y=summary["avg_wastage_pct"],
-                                          marker_color=COLORS["secondary"], marker_line_width=0))
-                fig_m.update_layout(**PLOTLY_DARK, height=280, yaxis_title="Avg wastage %",
-                                    yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
-                st.plotly_chart(fig_m, width='stretch', config={"displayModeBar": False})
+            ).round(1).reset_index() if "department" in all_perf.columns else pd.DataFrame()
+            if not dept_overview.empty:
+                dept_overview["headcount"] = dept_overview["department"].map(DEPARTMENT_HEADCOUNT)
+                with st.container(border=True):
+                    st.dataframe(dept_overview.sort_values("avg_units", ascending=False), width='stretch', hide_index=True)
 
         st.markdown("#### Recent goals & self-assessments")
         all_goals, err = portal_fetch("employee_goals")
@@ -947,7 +1006,7 @@ elif section == "👤  Employee portal":
         else:
             for _, row in all_goals.iterrows():
                 with st.container(border=True):
-                    st.markdown(f"**{row.get('employee_name','—')}** — {row.get('goal_text','—')}")
+                    st.markdown(f"**{row.get('employee_name','—')}** ({row.get('department','—')}) — {row.get('goal_text','—')}")
                     st.caption(f"Self-assessment: {row.get('self_assessment') or '—'}")
                     if row.get("manager_feedback"):
                         st.markdown(f"<span class='pill pill-ok'>Feedback given</span> {row['manager_feedback']}",
@@ -955,13 +1014,14 @@ elif section == "👤  Employee portal":
 
         st.markdown("###### Give feedback on an employee's goal")
         with st.form("manager_feedback_form", clear_on_submit=True):
-            fb_employee = st.selectbox("Employee", [e["name"] for e in EMPLOYEES], key="fb_employee")
+            fb_labels = [f"{e['department']} — {e['name']}" for e in EMPLOYEES]
+            fb_choice = st.selectbox("Employee", fb_labels, key="fb_employee")
             fb_text = st.text_area("Feedback")
             fb_submit = st.form_submit_button("Submit feedback", width='stretch')
             if fb_submit:
-                fb_emp_id = next(e["id"] for e in EMPLOYEES if e["name"] == fb_employee)
+                fb_emp = EMPLOYEES[fb_labels.index(fb_choice)]
                 ok, err = portal_insert("employee_goals", {
-                    "employee_name": fb_employee, "employee_id": fb_emp_id,
+                    "employee_name": fb_emp["name"], "employee_id": fb_emp["id"], "department": fb_emp["department"],
                     "goal_text": "(Manager feedback entry)", "self_assessment": None,
                     "manager_feedback": fb_text,
                 })
@@ -969,32 +1029,8 @@ elif section == "👤  Employee portal":
                     st.success("Feedback recorded.")
                 else:
                     st.error(f"Could not save: {err}")
-
-        st.markdown("#### Training & certification status across the team")
-        all_train, err = portal_fetch("employee_training")
-        if err:
-            st.error(f"Could not load training records: {err}")
-        elif all_train.empty:
-            st.info("No training records yet across the team.")
-        else:
-            today = datetime.now().date()
-            def _status(exp):
-                if not exp:
-                    return "No expiry"
-                try:
-                    d = (pd.to_datetime(exp).date() - today).days
-                    if d < 0: return "Expired"
-                    if d <= 30: return f"Expires in {d}d"
-                    return "Valid"
-                except Exception:
-                    return "—"
-            all_train_display = all_train.copy()
-            all_train_display["status"] = all_train_display.get("expiry_date", pd.Series(dtype=object)).apply(_status)
-            st.dataframe(all_train_display[[c for c in ["employee_name", "training_name", "completed_date",
-                                                          "expiry_date", "status"] if c in all_train_display.columns]],
-                         width='stretch', hide_index=True)
     else:
-        st.info("Select your name or the Manager / HR view above to get started.")
+        st.info("Select your department and name (or Manager / HR view) above to get started.")
 
 st.markdown("---")
 st.caption("Financial Performance and Cost Optimization for Grandiose Bakery Operations · GIP III · "
