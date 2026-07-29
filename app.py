@@ -383,6 +383,40 @@ DEPARTMENT_HEADCOUNT = {
     "Third-Party Cleaners": 10,
 }
 
+# Company-wide headcount context from the 27 Jul MoM. Note this figure (~110)
+# is larger than the sum of the itemized bakery lines above (91) — likely
+# because it includes catering/other roles not broken out per line. Shown
+# for context only; the itemized breakdown above remains the bakery-scope
+# source of truth for GIP III.
+COMPANY_HEADCOUNT_CURRENT = 110
+COMPANY_HEADCOUNT_TARGET = 200
+
+# Illustrative daily capacity targets (units/day) for production lines only —
+# PLACEHOLDER figures pending Grandiose's actual max-output numbers per line.
+# The MoM gives an overall utilization figure (30-35%, target 100% within a
+# year) but not a per-line breakdown, so utilization % shown against these
+# targets should be treated as directional, not precise, until replaced.
+DEPARTMENT_CAPACITY_TARGET = {
+    "Baklava": 400,
+    "French Bakery": 500,
+    "Arabic Bread": 900,
+    "Viennoiserie (Croissant/Danish)": 450,
+    "Tahina": 250,
+}
+
+# Lines the MoM specifically called out — used to tag department cards/tables.
+DEPARTMENT_PRIORITY_TAG = {
+    "Arabic Bread": ("🔥 Top revenue driver", "pill-ok"),
+    "Tahina": ("⚠️ Ramp-up focus (underutilized)", "pill-warn"),
+    "Baklava": ("⚠️ Ramp-up focus (underutilized)", "pill-warn"),
+}
+
+# GM's stated productivity benchmark: each employee = AED 1,000/day value.
+VALUE_PER_EMPLOYEE_DAY_TARGET = 1000
+
+# Company-wide wastage target from the MoM (current is 2-3%, target is 1%).
+WASTAGE_TARGET_PCT = 1.0
+
 # Illustrative sample employees per department (placeholders — swap in
 # Grandiose's real staff names/IDs once available). Not every headcount
 # above has a named entry; these exist so the portal and department
@@ -809,12 +843,19 @@ elif section == "👤  Employee portal":
 
     with st.expander("🏭 Staff breakdown by line", expanded=False):
         dep_df = pd.DataFrame(
-            [{"Department": d, "Headcount": c} for d, c in DEPARTMENT_HEADCOUNT.items()]
+            [{"Department": d, "Headcount": c,
+              "Focus": DEPARTMENT_PRIORITY_TAG.get(d, ("", ""))[0]} for d, c in DEPARTMENT_HEADCOUNT.items()]
         )
-        dep_df.loc[len(dep_df)] = ["Total", dep_df["Headcount"].sum()]
+        dep_df.loc[len(dep_df)] = ["Total (itemized bakery lines)", dep_df["Headcount"].sum(), ""]
         st.dataframe(dep_df, width='stretch', hide_index=True)
-        st.caption("Approximate headcounts. A small illustrative sample of named employees per department "
-                   "is used for the interactive demo below — replace with the full roster once available.")
+        cA, cB = st.columns(2)
+        cA.metric("Company-wide headcount (current)", COMPANY_HEADCOUNT_CURRENT)
+        cB.metric("Growth target (within 1 year)", COMPANY_HEADCOUNT_TARGET,
+                   f"+{COMPANY_HEADCOUNT_TARGET - COMPANY_HEADCOUNT_CURRENT} needed")
+        st.caption("Company-wide figures per the 27 Jul MoM — larger than the itemized bakery-line total above, "
+                   "likely including catering/other roles not broken out per line. Approximate headcounts overall; "
+                   "a small illustrative sample of named employees per department is used for the interactive "
+                   "demo below — replace with the full roster once available.")
 
     st.markdown("#### Who are you?")
     col_d1, col_d2 = st.columns([1, 1.4])
@@ -833,7 +874,9 @@ elif section == "👤  Employee portal":
     # -------------------- EMPLOYEE SELF-SERVICE --------------------
     if identity_employee is not None:
         emp_name, emp_id, emp_dept = identity_employee["name"], identity_employee["id"], identity_employee["department"]
-        st.markdown(f"<span class='pill pill-ok'>{emp_dept}</span>", unsafe_allow_html=True)
+        tag_label, tag_cls = DEPARTMENT_PRIORITY_TAG.get(emp_dept, (None, None))
+        tag_html = f"<span class='pill {tag_cls}' style='margin-left:6px;'>{tag_label}</span>" if tag_label else ""
+        st.markdown(f"<span class='pill pill-ok'>{emp_dept}</span>{tag_html}", unsafe_allow_html=True)
 
         etab1, etab2, etab3 = st.tabs(["📊 My performance", "📝 Daily log", "🎯 Goals & feedback"])
 
@@ -845,9 +888,14 @@ elif section == "👤  Employee portal":
             elif perf_df.empty:
                 st.info("No shift logs yet — add your first entry in the **Daily log** tab.")
             else:
-                for col in ["units_produced", "wastage_pct", "hours_worked", "batch_time_adherence_pct", "quality_pass_pct"]:
+                for col in ["units_produced", "wastage_pct", "hours_worked", "batch_time_adherence_pct",
+                            "quality_pass_pct", "revenue_generated"]:
                     if col in perf_df.columns:
                         perf_df[col] = pd.to_numeric(perf_df[col], errors="coerce")
+
+                avg_wastage = perf_df["wastage_pct"].mean()
+                wastage_pill = ("pill-ok" if avg_wastage <= WASTAGE_TARGET_PCT
+                                 else "pill-warn" if avg_wastage <= 3 else "pill-risk")
 
                 c1, c2, c3, c4 = st.columns(4)
                 with c1, st.container(border=True):
@@ -856,7 +904,8 @@ elif section == "👤  Employee portal":
                                 unsafe_allow_html=True)
                 with c2, st.container(border=True):
                     st.markdown(f"<div class='kpi-label'>Avg wastage %</div>"
-                                f"<div class='kpi-value' style='font-size:1.7rem;'>{perf_df['wastage_pct'].mean():.1f}%</div>",
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>{avg_wastage:.1f}%</div>"
+                                f"<span class='pill {wastage_pill}'>Target ≤{WASTAGE_TARGET_PCT:.0f}%</span>",
                                 unsafe_allow_html=True)
                 with c3, st.container(border=True):
                     st.markdown(f"<div class='kpi-label'>Batch-time adherence</div>"
@@ -866,6 +915,33 @@ elif section == "👤  Employee portal":
                     st.markdown(f"<div class='kpi-label'>Quality pass rate</div>"
                                 f"<div class='kpi-value' style='font-size:1.7rem;'>{perf_df['quality_pass_pct'].mean():.0f}%</div>",
                                 unsafe_allow_html=True)
+
+                # --- Productivity benchmark (AED 1,000/day per GM's rule of thumb) ---
+                c5, c6 = st.columns(2)
+                with c5, st.container(border=True):
+                    avg_hours = perf_df["hours_worked"].mean() if perf_df["hours_worked"].mean() > 0 else 8.0
+                    avg_revenue = perf_df["revenue_generated"].mean() if "revenue_generated" in perf_df.columns else 0.0
+                    value_per_day = (avg_revenue / avg_hours) * 8 if avg_hours else avg_revenue
+                    val_pill = "pill-ok" if value_per_day >= VALUE_PER_EMPLOYEE_DAY_TARGET else "pill-warn"
+                    st.markdown(f"<div class='kpi-label'>Value generated / day</div>"
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>AED {value_per_day:,.0f}</div>"
+                                f"<span class='pill {val_pill}'>GM benchmark: AED {VALUE_PER_EMPLOYEE_DAY_TARGET:,.0f}/day</span>",
+                                unsafe_allow_html=True)
+                    if avg_revenue == 0:
+                        st.caption("No revenue logged yet — add it in the Daily log tab to populate this benchmark.")
+                with c6, st.container(border=True):
+                    cap_target = DEPARTMENT_CAPACITY_TARGET.get(emp_dept)
+                    if cap_target:
+                        util_pct = (perf_df["units_produced"].mean() / cap_target) * 100
+                        util_pill = "pill-ok" if util_pct >= 70 else "pill-warn" if util_pct >= 40 else "pill-risk"
+                        st.markdown(f"<div class='kpi-label'>Capacity utilization ({emp_dept})</div>"
+                                    f"<div class='kpi-value' style='font-size:1.7rem;'>{util_pct:.0f}%</div>"
+                                    f"<span class='pill {util_pill}'>vs illustrative target {cap_target}/day</span>",
+                                    unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<div class='kpi-label'>Capacity utilization</div>"
+                                    f"<div class='kpi-value' style='font-size:1rem; color:{COLORS['text_soft']};'>Not tracked for this line</div>",
+                                    unsafe_allow_html=True)
 
                 with st.container(border=True):
                     plot_df = perf_df.sort_values("log_date") if "log_date" in perf_df.columns else perf_df
@@ -878,6 +954,17 @@ elif section == "👤  Employee portal":
                                         legend=dict(font=dict(color=COLORS["text_soft"])))
                     st.plotly_chart(fig_e, width='stretch', config={"displayModeBar": False})
 
+                # --- Shift breakdown (Arabic Bread runs a separate night shift) ---
+                if emp_dept == "Arabic Bread" and "shift" in perf_df.columns and perf_df["shift"].nunique() > 1:
+                    with st.container(border=True):
+                        st.markdown("###### Morning vs. night shift")
+                        shift_summary = perf_df.groupby("shift").agg(
+                            avg_units=("units_produced", "mean"),
+                            avg_wastage_pct=("wastage_pct", "mean"),
+                            shifts_logged=("shift", "count"),
+                        ).round(1).reset_index()
+                        st.dataframe(shift_summary, width='stretch', hide_index=True)
+
                 st.dataframe(perf_df.drop(columns=[c for c in ["id"] if c in perf_df.columns]),
                              width='stretch', hide_index=True)
 
@@ -886,21 +973,32 @@ elif section == "👤  Employee portal":
             st.caption("Log today's (or a past) shift — feeds directly into your performance tab above.")
             with st.form(f"daily_log_form_{emp_id}", clear_on_submit=True):
                 log_date = st.date_input("Date", value=datetime.now().date())
+                if emp_dept == "Arabic Bread":
+                    shift = st.selectbox("Shift", ["Morning", "Night"],
+                                          help="Arabic Bread runs a separate night shift in addition to the standard morning shift.")
+                else:
+                    shift = "Morning"
                 colf1, colf2 = st.columns(2)
                 units = colf1.number_input("Units produced", 0, 5000, 250, 10)
-                wastage = colf2.number_input("Wastage (%)", 0.0, 100.0, 4.5, 0.1)
+                wastage = colf2.number_input("Wastage (%)", 0.0, 100.0, 2.5, 0.1,
+                                              help="Company target is 1%; current company-wide average is 2-3%.")
                 hours = colf1.number_input("Hours worked", 0.0, 16.0, 8.0, 0.5)
                 batch_adh = colf2.slider("Batch-time adherence (%)", 0, 100, 90)
                 quality = st.slider("Quality-check pass rate (%)", 0, 100, 95)
+                revenue = st.number_input(
+                    "Revenue/value generated (AED, optional)", 0.0, 50000.0, 0.0, 50.0,
+                    help="Feeds the productivity benchmark: GM's rule of thumb is each employee should "
+                         "generate ~AED 1,000/day. Leave at 0 if not tracked yet for this shift."
+                )
                 notes = st.text_area("Notes (optional)", placeholder="Any incidents, equipment issues, etc.")
                 submitted = st.form_submit_button("Submit shift log", width='stretch')
                 if submitted:
                     ok, err = portal_insert("employee_performance", {
                         "employee_name": emp_name, "employee_id": emp_id, "department": emp_dept,
-                        "log_date": str(log_date), "units_produced": int(units),
+                        "log_date": str(log_date), "shift": shift, "units_produced": int(units),
                         "wastage_pct": float(wastage), "hours_worked": float(hours),
                         "batch_time_adherence_pct": int(batch_adh), "quality_pass_pct": int(quality),
-                        "notes": notes,
+                        "revenue_generated": float(revenue), "notes": notes,
                     })
                     if ok:
                         st.success("Shift log saved.")
@@ -947,7 +1045,7 @@ elif section == "👤  Employee portal":
         elif all_perf.empty:
             st.info("No shift logs recorded yet across the team.")
         else:
-            for col in ["units_produced", "wastage_pct", "batch_time_adherence_pct", "quality_pass_pct"]:
+            for col in ["units_produced", "wastage_pct", "batch_time_adherence_pct", "quality_pass_pct", "revenue_generated", "hours_worked"]:
                 if col in all_perf.columns:
                     all_perf[col] = pd.to_numeric(all_perf[col], errors="coerce")
 
@@ -957,7 +1055,17 @@ elif section == "👤  Employee portal":
                 st.info("No department data logged yet.")
             else:
                 dept_filter = st.selectbox("Choose a department to compare", available_depts, key="mgr_dept_filter")
-                dept_perf = all_perf[all_perf["department"] == dept_filter]
+                tag_label, tag_cls = DEPARTMENT_PRIORITY_TAG.get(dept_filter, (None, None))
+                tag_html = f"<span class='pill {tag_cls}' style='margin-left:8px;'>{tag_label}</span>" if tag_label else ""
+
+                dept_perf = all_perf[all_perf["department"] == dept_filter].copy()
+
+                def _value_per_day(row_group):
+                    hrs = row_group["hours_worked"].mean()
+                    hrs = hrs if hrs and hrs > 0 else 8.0
+                    rev = row_group["revenue_generated"].mean() if "revenue_generated" in row_group.columns else 0.0
+                    return (rev / hrs) * 8
+
                 dept_summary = dept_perf.groupby("employee_name").agg(
                     shifts_logged=("employee_name", "count"),
                     avg_units=("units_produced", "mean"),
@@ -965,10 +1073,20 @@ elif section == "👤  Employee portal":
                     avg_batch_adherence=("batch_time_adherence_pct", "mean"),
                     avg_quality_pass=("quality_pass_pct", "mean"),
                 ).round(1).reset_index().sort_values("avg_units", ascending=False)
+                dept_summary["value_per_day_aed"] = dept_summary["employee_name"].apply(
+                    lambda n: round(_value_per_day(dept_perf[dept_perf["employee_name"] == n]), 0))
+                dept_summary["wastage_status"] = dept_summary["avg_wastage_pct"].apply(
+                    lambda w: "✅ On target" if w <= WASTAGE_TARGET_PCT else "⚠️ Above 1% target")
+
+                cap_target = DEPARTMENT_CAPACITY_TARGET.get(dept_filter)
 
                 with st.container(border=True):
-                    st.markdown(f"**{dept_filter}** — {DEPARTMENT_HEADCOUNT.get(dept_filter, '—')} total headcount on the line, "
-                                f"{dept_perf['employee_name'].nunique()} with logged shifts")
+                    st.markdown(f"**{dept_filter}**{tag_html} — {DEPARTMENT_HEADCOUNT.get(dept_filter, '—')} total headcount "
+                                f"on the line, {dept_perf['employee_name'].nunique()} with logged shifts",
+                                unsafe_allow_html=True)
+                    if cap_target:
+                        util_pct = (dept_summary["avg_units"].mean() / cap_target) * 100
+                        st.caption(f"Capacity utilization vs illustrative target of {cap_target} units/day/employee: **{util_pct:.0f}%**")
                     st.dataframe(dept_summary, width='stretch', hide_index=True)
 
                 with st.container(border=True):
@@ -982,9 +1100,21 @@ elif section == "👤  Employee portal":
                 with st.container(border=True):
                     fig_dept2 = go.Figure(go.Bar(x=dept_summary["employee_name"], y=dept_summary["avg_wastage_pct"],
                                                   marker_color=COLORS["secondary"], marker_line_width=0))
+                    fig_dept2.add_hline(y=WASTAGE_TARGET_PCT, line_dash="dot", line_color=COLORS["text_soft"],
+                                         annotation_text="1% target", annotation_font_color=COLORS["text_soft"])
                     fig_dept2.update_layout(**PLOTLY_DARK, height=260, yaxis_title="Avg wastage %",
                                              yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
                     st.plotly_chart(fig_dept2, width='stretch', config={"displayModeBar": False})
+
+                if dept_filter == "Arabic Bread" and "shift" in dept_perf.columns and dept_perf["shift"].nunique() > 1:
+                    with st.container(border=True):
+                        st.markdown("###### Morning vs. night shift — Arabic Bread")
+                        shift_cmp = dept_perf.groupby("shift").agg(
+                            avg_units=("units_produced", "mean"),
+                            avg_wastage_pct=("wastage_pct", "mean"),
+                            shifts_logged=("shift", "count"),
+                        ).round(1).reset_index()
+                        st.dataframe(shift_cmp, width='stretch', hide_index=True)
 
             st.markdown("#### All departments — overview")
             dept_overview = all_perf.groupby("department").agg(
@@ -994,6 +1124,9 @@ elif section == "👤  Employee portal":
             ).round(1).reset_index() if "department" in all_perf.columns else pd.DataFrame()
             if not dept_overview.empty:
                 dept_overview["headcount"] = dept_overview["department"].map(DEPARTMENT_HEADCOUNT)
+                dept_overview["capacity_target"] = dept_overview["department"].map(DEPARTMENT_CAPACITY_TARGET)
+                dept_overview["utilization_pct"] = (dept_overview["avg_units"] / dept_overview["capacity_target"] * 100).round(0)
+                dept_overview["focus"] = dept_overview["department"].map(lambda d: DEPARTMENT_PRIORITY_TAG.get(d, ("", ""))[0])
                 with st.container(border=True):
                     st.dataframe(dept_overview.sort_values("avg_units", ascending=False), width='stretch', hide_index=True)
 
