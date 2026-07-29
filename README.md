@@ -80,6 +80,7 @@ survive an app restart until Supabase is connected. To make it persistent:
      id bigint generated always as identity primary key,
      employee_name text not null,
      employee_id text not null,
+     department text,
      log_date date not null default current_date,
      units_produced int,
      wastage_pct numeric,
@@ -94,19 +95,10 @@ survive an app restart until Supabase is connected. To make it persistent:
      id bigint generated always as identity primary key,
      employee_name text not null,
      employee_id text not null,
+     department text,
      goal_text text,
      self_assessment text,
      manager_feedback text,
-     created_at timestamptz default now()
-   );
-
-   create table employee_training (
-     id bigint generated always as identity primary key,
-     employee_name text not null,
-     employee_id text not null,
-     training_name text,
-     completed_date date,
-     expiry_date date,
      created_at timestamptz default now()
    );
 
@@ -116,7 +108,6 @@ survive an app restart until Supabase is connected. To make it persistent:
    -- before using this with real employee data in production.
    alter table employee_performance disable row level security;
    alter table employee_goals disable row level security;
-   alter table employee_training disable row level security;
    ```
 3. Go to **Project Settings → API** and copy the **Project URL** and the
    **anon public** key.
@@ -129,11 +120,17 @@ survive an app restart until Supabase is connected. To make it persistent:
    (persistent)" instead of "In-session only" once connected — no code
    changes needed, the same forms now write to the real database.
 
-**Who's who:** the employee list is a small placeholder set (`EMPLOYEES` near
-the top of `app.py`) — replace with Grandiose's actual bakery staff names/IDs
-once available. Since there's no real login, anyone with the link can pick
-any name from the dropdown; this is fine for a class prototype but should not
-be used for real HR data without adding actual authentication.
+**Who's who:** `DEPARTMENT_HEADCOUNT` (near the top of `app.py`) holds the real
+approximate headcount per line — Baklava, French Bakery, Arabic Bread,
+Viennoiserie, Tahina, QC, Packing & Dispatch, Store, Maintenance, GM, Office,
+Drivers, Third-Party Cleaners. `EMPLOYEES` holds a small illustrative sample
+of named staff per department (2-3 each) so the portal and department
+comparisons are demoable today — replace with Grandiose's full roster once
+available; no other code changes are needed since every form and query reads
+from these two lists. Since there's no real login, anyone with the link can
+pick any department/name from the dropdown; this is fine for a class
+prototype but should not be used for real HR data without adding actual
+authentication.
 
 ## Updating with real data
 
