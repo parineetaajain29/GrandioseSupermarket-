@@ -23,6 +23,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from fpdf import FPDF
+from supabase import create_client
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -321,7 +322,7 @@ st.sidebar.markdown(f"""
 with st.sidebar.expander("📧  Email this report", expanded=False):
     recipient = st.text_input("Recipient email", placeholder="name@company.com", key="email_recipient")
     note = st.text_area("Add a note (optional)", key="email_note", height=70)
-    if st.button("Send report", key="send_email_btn", use_container_width=True):
+    if st.button("Send report", key="send_email_btn", width='stretch'):
         email_pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
         if not recipient or not re.match(email_pattern, recipient):
             st.error("Enter a valid email address.")
@@ -333,6 +334,76 @@ with st.sidebar.expander("📧  Email this report", expanded=False):
             else:
                 st.error(message)
     st.caption("Sends a one-page PDF snapshot of the current KPIs and category panels.")
+
+
+# ----------------------------------------------------------------------
+# EMPLOYEE PORTAL — data layer
+# Uses Supabase (Postgres) when configured via secrets; falls back to an
+# in-session store so the portal is still fully clickable/demoable before
+# Supabase is wired up. Data in fallback mode does not persist across
+# app restarts — see README for the one-time Supabase setup.
+# ----------------------------------------------------------------------
+EMPLOYEES = [
+    {"name": "Ahmed Khalil", "id": "EMP-101"},
+    {"name": "Fatima Rashid", "id": "EMP-102"},
+    {"name": "Sandeep Kumar", "id": "EMP-103"},
+    {"name": "Mariam Al Suwaidi", "id": "EMP-104"},
+    {"name": "John Dsouza", "id": "EMP-105"},
+]
+
+@st.cache_resource
+def get_supabase_client():
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+    except (KeyError, FileNotFoundError):
+        return None
+    try:
+        return create_client(url, key)
+    except Exception:
+        return None
+
+def portal_insert(table, row):
+    client = get_supabase_client()
+    if client is not None:
+        try:
+            client.table(table).insert(row).execute()
+            return True, None
+        except Exception as e:
+            return False, str(e)
+    else:
+        row = {**row, "created_at": datetime.now().isoformat()}
+        key = f"_local_{table}"
+        st.session_state.setdefault(key, [])
+        row["id"] = len(st.session_state[key]) + 1
+        st.session_state[key].append(row)
+        return True, None
+
+def portal_fetch(table, filters=None):
+    client = get_supabase_client()
+    if client is not None:
+        try:
+            q = client.table(table).select("*")
+            if filters:
+                for k, v in filters.items():
+                    q = q.eq(k, v)
+            res = q.order("created_at", desc=True).execute()
+            return pd.DataFrame(res.data), None
+        except Exception as e:
+            return pd.DataFrame(), str(e)
+    else:
+        rows = st.session_state.get(f"_local_{table}", [])
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            if filters:
+                for k, v in filters.items():
+                    df = df[df[k] == v]
+            if "created_at" in df.columns:
+                df = df.sort_values("created_at", ascending=False)
+        return df, None
+
+def portal_storage_mode():
+    return "Supabase (persistent)" if get_supabase_client() is not None else "In-session only (not saved after restart)"
 
 
 # ----------------------------------------------------------------------
@@ -359,7 +430,7 @@ st.markdown(f"""
 
 section = st.selectbox(
     "Dashboard section",
-    ["📊  Performance tracker", "🧭  Scenario & resilience"],
+    ["📊  Performance tracker", "🧭  Scenario & resilience", "👤  Employee portal"],
     label_visibility="collapsed",
 )
 
@@ -391,7 +462,7 @@ if section == "📊  Performance tracker":
                     <span class='pill {pill_class}'>{delta}</span>
                 </div>
                 """, unsafe_allow_html=True)
-                st.plotly_chart(sparkline(trend, color), use_container_width=True,
+                st.plotly_chart(sparkline(trend, color), width='stretch',
                                  config={"displayModeBar": False}, key=f"spark_{label}")
 
     st.markdown("#### Food cost % vs target — last 6 months")
@@ -411,7 +482,7 @@ if section == "📊  Performance tracker":
                            xaxis=dict(gridcolor="rgba(0,0,0,0)"),
                            legend=dict(orientation="h", yanchor="bottom", y=1.03, x=0,
                                        font=dict(color=COLORS["text_soft"])))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
     st.markdown("#### Category panels")
     cols2 = st.columns(4)
@@ -468,7 +539,7 @@ elif section == "🧭  Scenario & resilience":
                         text=f"<b>AED {net_after_subsidy:.2f}</b><br><span style='font-size:10px;color:{COLORS['text_soft']}'>net / unit</span>",
                         x=0.5, y=0.5, font=dict(size=18, color=COLORS['text']), showarrow=False)],
                 )
-                st.plotly_chart(donut, use_container_width=True, config={"displayModeBar": False}, key="inflation_donut")
+                st.plotly_chart(donut, width='stretch', config={"displayModeBar": False}, key="inflation_donut")
 
         adj_cost_headline = round(base_cost * (1 + headline_inf / 100) - subsidy_offset, 3)
         adj_cost_food = round(base_cost * (1 + food_inf / 100) - subsidy_offset, 3)
@@ -492,7 +563,7 @@ elif section == "🧭  Scenario & resilience":
                 ))
                 fig1.update_layout(**PLOTLY_DARK, height=260, yaxis_title="AED per unit",
                                     yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
-                st.plotly_chart(fig1, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig1, width='stretch', config={"displayModeBar": False})
 
         st.caption("Context: UAE food inflation has ranged from a 2022 peak near 9% to negative readings in 2021, "
                    "against headline forecasts around 2–3% for 2026 — a single flat assumption misses this swing.")
@@ -543,7 +614,7 @@ elif section == "🧭  Scenario & resilience":
             ))
             fig2.update_layout(**PLOTLY_DARK, height=260, yaxis_title="AED",
                                 yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
-            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig2, width='stretch', config={"displayModeBar": False})
 
     # ---------------- MODULE 3: PANDEMIC PREPAREDNESS ----------------
     with mod3:
@@ -594,7 +665,7 @@ elif section == "🧭  Scenario & resilience":
             "Spend share (%)": [31, 28, 12, 20, 9],
         })
         st.caption("Edit the spend shares below to reflect current or hypothetical sourcing mix (must sum to ~100%).")
-        edited = st.data_editor(default_suppliers, num_rows="fixed", use_container_width=True, hide_index=True)
+        edited = st.data_editor(default_suppliers, num_rows="fixed", width='stretch', hide_index=True)
 
         shares = edited["Spend share (%)"].astype(float)
         total = shares.sum()
@@ -621,7 +692,7 @@ elif section == "🧭  Scenario & resilience":
                 fig3 = go.Figure(go.Pie(labels=edited["Supplier / origin"], values=shares_norm,
                                          hole=0.55, marker=dict(colors=CATEGORICAL, line=dict(color=COLORS["surface"], width=2))))
                 fig3.update_layout(**PLOTLY_DARK, height=280, legend=dict(font=dict(color=COLORS["text_soft"])))
-                st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig3, width='stretch', config={"displayModeBar": False})
 
         st.markdown("###### Pre-identified alternate suppliers (illustrative)")
         alt_df = pd.DataFrame({
@@ -629,7 +700,275 @@ elif section == "🧭  Scenario & resilience":
             "Cost delta vs current": ["+4.5%", "+2.1%", "+1.8%"],
             "Lead-time delta": ["-3 days", "-1 day", "0 days"],
         })
-        st.dataframe(alt_df, use_container_width=True, hide_index=True)
+        st.dataframe(alt_df, width='stretch', hide_index=True)
+
+# ========================================================================
+# SECTION C — EMPLOYEE PORTAL
+# ========================================================================
+elif section == "👤  Employee portal":
+    st.caption("Employee self-service performance tracking — bakery division")
+
+    storage_mode = portal_storage_mode()
+    badge_cls = "pill-ok" if "Supabase" in storage_mode else "pill-warn"
+    st.markdown(f"<span class='pill {badge_cls}'>💾 Storage: {storage_mode}</span>", unsafe_allow_html=True)
+    if "Supabase" not in storage_mode:
+        with st.expander("⚙️ Set up persistent storage (Supabase)"):
+            st.markdown(
+                "The portal works right now, but entries only last for this browser session. "
+                "To make them persistent across visits and deployments, connect a free Supabase project — "
+                "see the **Employee portal setup** section in the README for the exact SQL and secrets to add."
+            )
+
+    people_labels = [f"{e['name']} ({e['id']})" for e in EMPLOYEES]
+    identity = st.selectbox(
+        "Who are you?",
+        ["— Select —"] + people_labels + ["🧑‍💼 Manager / HR view"],
+    )
+
+    # -------------------- EMPLOYEE SELF-SERVICE --------------------
+    if identity in people_labels:
+        emp = EMPLOYEES[people_labels.index(identity)]
+        emp_name, emp_id = emp["name"], emp["id"]
+
+        etab1, etab2, etab3, etab4 = st.tabs(
+            ["📊 My performance", "📝 Daily log", "🎯 Goals & feedback", "🎓 Training & certifications"]
+        )
+
+        # --- My performance ---
+        with etab1:
+            perf_df, err = portal_fetch("employee_performance", {"employee_id": emp_id})
+            if err:
+                st.error(f"Could not load performance data: {err}")
+            elif perf_df.empty:
+                st.info("No shift logs yet — add your first entry in the **Daily log** tab.")
+            else:
+                for col in ["units_produced", "wastage_pct", "hours_worked", "batch_time_adherence_pct", "quality_pass_pct"]:
+                    if col in perf_df.columns:
+                        perf_df[col] = pd.to_numeric(perf_df[col], errors="coerce")
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1, st.container(border=True):
+                    st.markdown(f"<div class='kpi-label'>Avg units / shift</div>"
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>{perf_df['units_produced'].mean():.0f}</div>",
+                                unsafe_allow_html=True)
+                with c2, st.container(border=True):
+                    st.markdown(f"<div class='kpi-label'>Avg wastage %</div>"
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>{perf_df['wastage_pct'].mean():.1f}%</div>",
+                                unsafe_allow_html=True)
+                with c3, st.container(border=True):
+                    st.markdown(f"<div class='kpi-label'>Batch-time adherence</div>"
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>{perf_df['batch_time_adherence_pct'].mean():.0f}%</div>",
+                                unsafe_allow_html=True)
+                with c4, st.container(border=True):
+                    st.markdown(f"<div class='kpi-label'>Quality pass rate</div>"
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>{perf_df['quality_pass_pct'].mean():.0f}%</div>",
+                                unsafe_allow_html=True)
+
+                with st.container(border=True):
+                    plot_df = perf_df.sort_values("log_date") if "log_date" in perf_df.columns else perf_df
+                    fig_e = go.Figure()
+                    fig_e.add_trace(go.Scatter(x=plot_df.get("log_date", plot_df.index), y=plot_df["units_produced"],
+                                                mode="lines+markers", name="Units produced",
+                                                line=dict(color=COLORS["primary"], width=2.5)))
+                    fig_e.update_layout(**PLOTLY_DARK, height=260, yaxis=dict(gridcolor=GRID_COLOR),
+                                        xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                                        legend=dict(font=dict(color=COLORS["text_soft"])))
+                    st.plotly_chart(fig_e, width='stretch', config={"displayModeBar": False})
+
+                st.dataframe(perf_df.drop(columns=[c for c in ["id"] if c in perf_df.columns]),
+                             width='stretch', hide_index=True)
+
+        # --- Daily log ---
+        with etab2:
+            st.caption("Log today's (or a past) shift — feeds directly into your performance tab above.")
+            with st.form(f"daily_log_form_{emp_id}", clear_on_submit=True):
+                log_date = st.date_input("Date", value=datetime.now().date())
+                colf1, colf2 = st.columns(2)
+                units = colf1.number_input("Units produced", 0, 5000, 250, 10)
+                wastage = colf2.number_input("Wastage (%)", 0.0, 100.0, 4.5, 0.1)
+                hours = colf1.number_input("Hours worked", 0.0, 16.0, 8.0, 0.5)
+                batch_adh = colf2.slider("Batch-time adherence (%)", 0, 100, 90)
+                quality = st.slider("Quality-check pass rate (%)", 0, 100, 95)
+                notes = st.text_area("Notes (optional)", placeholder="Any incidents, equipment issues, etc.")
+                submitted = st.form_submit_button("Submit shift log", width='stretch')
+                if submitted:
+                    ok, err = portal_insert("employee_performance", {
+                        "employee_name": emp_name, "employee_id": emp_id,
+                        "log_date": str(log_date), "units_produced": int(units),
+                        "wastage_pct": float(wastage), "hours_worked": float(hours),
+                        "batch_time_adherence_pct": int(batch_adh), "quality_pass_pct": int(quality),
+                        "notes": notes,
+                    })
+                    if ok:
+                        st.success("Shift log saved.")
+                    else:
+                        st.error(f"Could not save: {err}")
+
+        # --- Goals & feedback ---
+        with etab3:
+            goals_df, err = portal_fetch("employee_goals", {"employee_id": emp_id})
+            if err:
+                st.error(f"Could not load goals: {err}")
+            elif not goals_df.empty:
+                for _, row in goals_df.iterrows():
+                    with st.container(border=True):
+                        st.markdown(f"**Goal:** {row.get('goal_text', '—')}")
+                        st.caption(f"Self-assessment: {row.get('self_assessment') or '—'}")
+                        if row.get("manager_feedback"):
+                            st.markdown(f"<span class='pill pill-ok'>Manager feedback</span> {row['manager_feedback']}",
+                                        unsafe_allow_html=True)
+            else:
+                st.info("No goals logged yet.")
+
+            st.markdown("###### Add a new goal / self-assessment")
+            with st.form(f"goals_form_{emp_id}", clear_on_submit=True):
+                goal_text = st.text_area("Current goal / focus area")
+                self_assessment = st.text_area("Self-assessment for this period")
+                submitted_g = st.form_submit_button("Save", width='stretch')
+                if submitted_g:
+                    ok, err = portal_insert("employee_goals", {
+                        "employee_name": emp_name, "employee_id": emp_id,
+                        "goal_text": goal_text, "self_assessment": self_assessment,
+                        "manager_feedback": None,
+                    })
+                    if ok:
+                        st.success("Saved.")
+                    else:
+                        st.error(f"Could not save: {err}")
+
+        # --- Training & certifications ---
+        with etab4:
+            train_df, err = portal_fetch("employee_training", {"employee_id": emp_id})
+            if err:
+                st.error(f"Could not load training records: {err}")
+            elif not train_df.empty:
+                today = datetime.now().date()
+                for _, row in train_df.iterrows():
+                    exp = row.get("expiry_date")
+                    pill = "pill-ok"
+                    tag = ""
+                    if exp:
+                        try:
+                            exp_date = pd.to_datetime(exp).date()
+                            days_left = (exp_date - today).days
+                            if days_left < 0:
+                                pill, tag = "pill-risk", " · expired"
+                            elif days_left <= 30:
+                                pill, tag = "pill-warn", f" · expires in {days_left}d"
+                        except Exception:
+                            pass
+                    with st.container(border=True):
+                        st.markdown(f"**{row.get('training_name', '—')}**"
+                                    f"<span class='pill {pill}' style='margin-left:8px;'>Completed {row.get('completed_date','—')}{tag}</span>",
+                                    unsafe_allow_html=True)
+            else:
+                st.info("No training records yet.")
+
+            st.markdown("###### Add a completed training / certification")
+            with st.form(f"training_form_{emp_id}", clear_on_submit=True):
+                training_name = st.text_input("Training / certification name", placeholder="e.g. HACCP Food Safety Level 2")
+                colt1, colt2 = st.columns(2)
+                completed_date = colt1.date_input("Completed date", value=datetime.now().date())
+                expiry_date = colt2.date_input("Expiry date (if applicable)", value=None)
+                submitted_t = st.form_submit_button("Save", width='stretch')
+                if submitted_t:
+                    ok, err = portal_insert("employee_training", {
+                        "employee_name": emp_name, "employee_id": emp_id,
+                        "training_name": training_name, "completed_date": str(completed_date),
+                        "expiry_date": str(expiry_date) if expiry_date else None,
+                    })
+                    if ok:
+                        st.success("Saved.")
+                    else:
+                        st.error(f"Could not save: {err}")
+
+    # -------------------- MANAGER / HR VIEW --------------------
+    elif identity == "🧑‍💼 Manager / HR view":
+        st.markdown("#### Team performance overview")
+        all_perf, err = portal_fetch("employee_performance")
+        if err:
+            st.error(f"Could not load team data: {err}")
+        elif all_perf.empty:
+            st.info("No shift logs recorded yet across the team.")
+        else:
+            for col in ["units_produced", "wastage_pct", "batch_time_adherence_pct", "quality_pass_pct"]:
+                if col in all_perf.columns:
+                    all_perf[col] = pd.to_numeric(all_perf[col], errors="coerce")
+            summary = all_perf.groupby("employee_name").agg(
+                shifts_logged=("employee_name", "count"),
+                avg_units=("units_produced", "mean"),
+                avg_wastage_pct=("wastage_pct", "mean"),
+                avg_batch_adherence=("batch_time_adherence_pct", "mean"),
+                avg_quality_pass=("quality_pass_pct", "mean"),
+            ).round(1).reset_index().sort_values("avg_units", ascending=False)
+
+            with st.container(border=True):
+                st.dataframe(summary, width='stretch', hide_index=True)
+
+            with st.container(border=True):
+                fig_m = go.Figure(go.Bar(x=summary["employee_name"], y=summary["avg_wastage_pct"],
+                                          marker_color=COLORS["secondary"], marker_line_width=0))
+                fig_m.update_layout(**PLOTLY_DARK, height=280, yaxis_title="Avg wastage %",
+                                    yaxis=dict(gridcolor=GRID_COLOR), xaxis=dict(gridcolor="rgba(0,0,0,0)"))
+                st.plotly_chart(fig_m, width='stretch', config={"displayModeBar": False})
+
+        st.markdown("#### Recent goals & self-assessments")
+        all_goals, err = portal_fetch("employee_goals")
+        if err:
+            st.error(f"Could not load goals: {err}")
+        elif all_goals.empty:
+            st.info("No goals logged yet across the team.")
+        else:
+            for _, row in all_goals.iterrows():
+                with st.container(border=True):
+                    st.markdown(f"**{row.get('employee_name','—')}** — {row.get('goal_text','—')}")
+                    st.caption(f"Self-assessment: {row.get('self_assessment') or '—'}")
+                    if row.get("manager_feedback"):
+                        st.markdown(f"<span class='pill pill-ok'>Feedback given</span> {row['manager_feedback']}",
+                                    unsafe_allow_html=True)
+
+        st.markdown("###### Give feedback on an employee's goal")
+        with st.form("manager_feedback_form", clear_on_submit=True):
+            fb_employee = st.selectbox("Employee", [e["name"] for e in EMPLOYEES], key="fb_employee")
+            fb_text = st.text_area("Feedback")
+            fb_submit = st.form_submit_button("Submit feedback", width='stretch')
+            if fb_submit:
+                fb_emp_id = next(e["id"] for e in EMPLOYEES if e["name"] == fb_employee)
+                ok, err = portal_insert("employee_goals", {
+                    "employee_name": fb_employee, "employee_id": fb_emp_id,
+                    "goal_text": "(Manager feedback entry)", "self_assessment": None,
+                    "manager_feedback": fb_text,
+                })
+                if ok:
+                    st.success("Feedback recorded.")
+                else:
+                    st.error(f"Could not save: {err}")
+
+        st.markdown("#### Training & certification status across the team")
+        all_train, err = portal_fetch("employee_training")
+        if err:
+            st.error(f"Could not load training records: {err}")
+        elif all_train.empty:
+            st.info("No training records yet across the team.")
+        else:
+            today = datetime.now().date()
+            def _status(exp):
+                if not exp:
+                    return "No expiry"
+                try:
+                    d = (pd.to_datetime(exp).date() - today).days
+                    if d < 0: return "Expired"
+                    if d <= 30: return f"Expires in {d}d"
+                    return "Valid"
+                except Exception:
+                    return "—"
+            all_train_display = all_train.copy()
+            all_train_display["status"] = all_train_display.get("expiry_date", pd.Series(dtype=object)).apply(_status)
+            st.dataframe(all_train_display[[c for c in ["employee_name", "training_name", "completed_date",
+                                                          "expiry_date", "status"] if c in all_train_display.columns]],
+                         width='stretch', hide_index=True)
+    else:
+        st.info("Select your name or the Manager / HR view above to get started.")
 
 st.markdown("---")
 st.caption("Financial Performance and Cost Optimization for Grandiose Bakery Operations · GIP III · "
