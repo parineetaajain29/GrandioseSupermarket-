@@ -82,11 +82,13 @@ survive an app restart until Supabase is connected. To make it persistent:
      employee_id text not null,
      department text,
      log_date date not null default current_date,
+     shift text,
      units_produced int,
      wastage_pct numeric,
      hours_worked numeric,
      batch_time_adherence_pct numeric,
      quality_pass_pct numeric,
+     revenue_generated numeric,
      notes text,
      created_at timestamptz default now()
    );
@@ -131,6 +133,30 @@ from these two lists. Since there's no real login, anyone with the link can
 pick any department/name from the dropdown; this is fine for a class
 prototype but should not be used for real HR data without adding actual
 authentication.
+
+## Benchmarks & targets from the 27 Jul MoM
+
+A few figures baked into the portal come directly from the personal meeting
+with the GM, and are marked in `app.py` for easy updating:
+
+- `VALUE_PER_EMPLOYEE_DAY_TARGET = 1000` — GM's rule of thumb that each
+  employee should generate ~AED 1,000/day of value. Populated from the
+  optional "Revenue/value generated" field in the Daily log.
+- `WASTAGE_TARGET_PCT = 1.0` — company target is 1%; current company-wide
+  average is 2-3%. Used to flag wastage in both the employee and manager views.
+- `DEPARTMENT_PRIORITY_TAG` — Arabic Bread is called out as a top
+  revenue/profit driver; Tahina and Baklava are called out as the
+  least-utilized lines. Shown as pills next to the department name.
+- `DEPARTMENT_CAPACITY_TARGET` — **illustrative placeholder** daily-output
+  targets for the five production lines. The MoM gives an overall utilization
+  figure (30-35%, target 100% within a year) but not a per-line breakdown, so
+  these numbers are directional only — replace with Grandiose's actual
+  max-output figures per line as soon as they're available.
+- `COMPANY_HEADCOUNT_CURRENT` / `COMPANY_HEADCOUNT_TARGET` — ~110 today,
+  target 200 within a year, shown in the "Staff breakdown by line" panel.
+- The Arabic Bread department shows a Morning/Night shift selector in the
+  Daily log (and shift-comparison tables), since the MoM specifically notes
+  Arabic Bread runs a separate night shift while other lines don't.
 
 ## Updating with real data
 
