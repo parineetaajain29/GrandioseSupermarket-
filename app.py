@@ -291,6 +291,28 @@ def send_report_email(recipient_email, note=""):
         return False, f"Could not send email: {e}"
 
 
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+def render_email_share(key_suffix, label="Email this report"):
+    """Small 📧 popover button — usable right under any chart/section so
+    people don't have to go back to the sidebar to share the dashboard."""
+    with st.popover("📧", help=label):
+        st.markdown(f"**{label}**")
+        recipient = st.text_input("Recipient email", placeholder="name@company.com", key=f"email_recipient_{key_suffix}")
+        note = st.text_area("Add a note (optional)", key=f"email_note_{key_suffix}", height=68)
+        if st.button("Send report", key=f"send_email_btn_{key_suffix}", width='stretch'):
+            if not recipient or not re.match(EMAIL_PATTERN, recipient):
+                st.error("Enter a valid email address.")
+            else:
+                with st.spinner("Sending..."):
+                    success, message = send_report_email(recipient, note)
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+        st.caption("Sends a one-page PDF snapshot of the current KPIs and category panels.")
+
+
 st.sidebar.markdown(f"""
 <div style='background-color:{COLORS['surface']}; border:1px solid {COLORS['border']};
      border-radius:14px; padding:16px; margin-bottom:14px;'>
@@ -483,6 +505,7 @@ if section == "📊  Performance tracker":
                            legend=dict(orientation="h", yanchor="bottom", y=1.03, x=0,
                                        font=dict(color=COLORS["text_soft"])))
         st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+    render_email_share("trend_chart", "Email this food-cost trend")
 
     st.markdown("#### Category panels")
     cols2 = st.columns(4)
@@ -492,6 +515,7 @@ if section == "📊  Performance tracker":
                 rows = "".join([f"<div class='cat-row'><span>{k}</span><span>{v}</span></div>" for k, v in metrics.items()])
                 st.markdown(f"<div style='padding:12px 16px;'><h4 style='margin:0 0 8px 0; font-size:1rem;'>{name}</h4>{rows}</div>",
                             unsafe_allow_html=True)
+    render_email_share("category_panels", "Email the full status report")
 
 # ========================================================================
 # TAB B — SCENARIO & RESILIENCE
@@ -701,6 +725,8 @@ elif section == "🧭  Scenario & resilience":
             "Lead-time delta": ["-3 days", "-1 day", "0 days"],
         })
         st.dataframe(alt_df, width='stretch', hide_index=True)
+
+    render_email_share("scenario_resilience", "Email the full status report")
 
 # ========================================================================
 # SECTION C — EMPLOYEE PORTAL
