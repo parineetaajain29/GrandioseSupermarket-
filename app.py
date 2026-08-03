@@ -41,22 +41,28 @@ st.set_page_config(
 # secondary/tertiary) instead of generic blue/purple.
 # ----------------------------------------------------------------------
 COLORS = {
-    "bg":        "#0B0B0F",   # near-black page background
-    "surface":   "#16171D",   # card surface
-    "surface2":  "#1E1F27",   # sidebar / secondary surface
-    "border":    "#2A2B33",
-    "text":      "#F5F5F7",   # near-white
-    "text_soft": "#9B9BA5",   # muted gray secondary text
-    "primary":   "#FFB020",   # vibrant amber/gold — bakery warmth
-    "primary_d": "#7A5A16",
-    "secondary": "#FF5C8A",   # vibrant coral/pink
-    "tertiary":  "#7C6FF0",   # vibrant violet
-    "success":   "#3ECF8E",
-    "warning":   "#FFC94D",
-    "danger":    "#FF5C5C",
+    "bg":        "#0A0A0A",   # near-black — matches the portfolio site exactly
+    "surface":   "#16141E",   # dark plum-tinted card surface
+    "surface2":  "#1D1926",   # sidebar / secondary surface
+    "border":    "#2E2838",   # muted plum-gray border
+    "text":      "#F4F0F8",   # near-white, cool lilac-white
+    "text_soft": "#9C93AC",   # muted lilac-gray secondary text
+    "primary":   "#B9A0DC",   # soft lilac — main accent
+    "primary_d": "#6B5789",   # deeper lilac, for text on light-lilac backgrounds
+    "secondary": "#E8AECB",   # soft pink
+    "tertiary":  "#8C76B0",   # deeper plum/violet, for chart variety
+    "success":   "#C9B8E8",   # pale lilac — used for "on target / good" status
+    "warning":   "#D9A8C4",   # dusty rose/mauve — used for "caution" status
+    "danger":    "#9C6B8C",   # muted plum-wine — used for "risk" status (deliberately not red)
 }
 
-CATEGORICAL = [COLORS["primary"], COLORS["secondary"], COLORS["tertiary"], COLORS["success"], "#4DD0E1"]
+CATEGORICAL = [COLORS["primary"], COLORS["secondary"], "#F0DCEA", COLORS["tertiary"], COLORS["success"]]
+
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+""", unsafe_allow_html=True)
 
 st.markdown(f"""
 <style>
@@ -66,10 +72,19 @@ st.markdown(f"""
     .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
     div[data-testid="stMarkdownContainer"], div[data-testid="stMarkdownContainer"] p {{
         color: {COLORS['text']} !important;
+        font-family: 'Space Grotesk', sans-serif !important;
     }}
     div[data-testid="stCaptionContainer"], .stApp small {{ color: {COLORS['text_soft']} !important; }}
-    h1, h2, h3, h4, h5 {{ color: {COLORS['text']} !important; font-weight: 700 !important; }}
-    section[data-testid="stSidebar"] * {{ color: {COLORS['text']} !important; }}
+    h1, h2 {{
+        color: {COLORS['text']} !important; font-family: 'Anton', sans-serif !important;
+        font-weight: 400 !important; letter-spacing: 0.5px;
+    }}
+    h3, h4, h5 {{
+        color: {COLORS['text']} !important; font-family: 'Space Grotesk', sans-serif !important;
+        font-weight: 700 !important;
+    }}
+    section[data-testid="stSidebar"] * {{ color: {COLORS['text']} !important; font-family: 'Space Grotesk', sans-serif !important; }}
+
 
     /* Bordered containers -> dark elevated cards */
     div[data-testid="stVerticalBlockBorderWrapper"] {{
@@ -84,18 +99,21 @@ st.markdown(f"""
         width:34px; height:34px; border-radius:10px; font-size:17px; margin-right:8px;
     }}
     .kpi-label {{ color:{COLORS['text_soft']}; font-size:0.82rem; font-weight:500; }}
-    .kpi-value {{ font-size:2.1rem; font-weight:800; margin: 4px 0 2px 0; letter-spacing:-0.5px; }}
+    .kpi-value {{
+        font-size:2.1rem; font-weight:600; margin: 4px 0 2px 0; letter-spacing:-0.5px;
+        font-family: 'IBM Plex Mono', monospace !important;
+    }}
     .pill {{
         display:inline-block; padding:3px 11px; border-radius:20px;
         font-size:0.76rem; font-weight:700;
     }}
-    .pill-up-bad {{ background-color: rgba(255,92,92,0.15); color:{COLORS['danger']} !important; }}
-    .pill-up-good {{ background-color: rgba(62,207,142,0.15); color:{COLORS['success']} !important; }}
-    .pill-down-good {{ background-color: rgba(62,207,142,0.15); color:{COLORS['success']} !important; }}
-    .pill-flat {{ background-color: rgba(155,155,165,0.15); color:{COLORS['text_soft']} !important; }}
-    .pill-ok {{ background-color: rgba(62,207,142,0.15); color:{COLORS['success']} !important; }}
-    .pill-warn {{ background-color: rgba(255,201,77,0.15); color:{COLORS['warning']} !important; }}
-    .pill-risk {{ background-color: rgba(255,92,92,0.15); color:{COLORS['danger']} !important; }}
+    .pill-up-bad {{ background-color: rgba(156,107,140,0.20); color:{COLORS['danger']} !important; }}
+    .pill-up-good {{ background-color: rgba(201,184,232,0.18); color:{COLORS['success']} !important; }}
+    .pill-down-good {{ background-color: rgba(201,184,232,0.18); color:{COLORS['success']} !important; }}
+    .pill-flat {{ background-color: rgba(156,147,172,0.15); color:{COLORS['text_soft']} !important; }}
+    .pill-ok {{ background-color: rgba(201,184,232,0.18); color:{COLORS['success']} !important; }}
+    .pill-warn {{ background-color: rgba(217,168,196,0.20); color:{COLORS['warning']} !important; }}
+    .pill-risk {{ background-color: rgba(156,107,140,0.22); color:{COLORS['danger']} !important; }}
 
     .cat-row {{
         display:flex; justify-content:space-between; padding:7px 0;
@@ -103,6 +121,13 @@ st.markdown(f"""
     }}
     .cat-row span:first-child {{ color:{COLORS['text_soft']}; }}
     .cat-row span:last-child {{ font-weight:600; }}
+
+    .info-row {{
+        padding:8px 0; border-bottom:1px solid {COLORS['border']};
+        font-size:0.92rem; line-height:1.5; display:flex; gap:8px;
+    }}
+    .info-row:last-child {{ border-bottom:none; }}
+    .info-row::before {{ content:"—"; color:{COLORS['primary']}; flex-shrink:0; }}
 
     .hero-badge {{
         display:inline-block; padding:5px 14px; border-radius:20px; font-size:0.78rem;
@@ -121,7 +146,7 @@ st.markdown(f"""
     }}
     .stTabs [aria-selected="true"] {{
         background-color: {COLORS['primary']} !important;
-        color: #1A1300 !important; font-weight:700 !important;
+        color: #1A1424 !important; font-weight:700 !important;
     }}
     .stTabs [data-baseweb="tab-highlight"] {{ background-color: transparent !important; }}
     .stTabs [data-baseweb="tab-border"] {{ display:none !important; }}
@@ -548,7 +573,7 @@ st.markdown(f"""
 
 section = st.selectbox(
     "Dashboard section",
-    ["📊  Performance tracker", "🧭  Scenario & resilience", "👤  Employee portal"],
+    ["📊  Performance tracker", "🧭  Scenario & resilience", "👤  Employee portal", "📋  Company profile"],
     label_visibility="collapsed",
 )
 
@@ -1164,6 +1189,86 @@ elif section == "👤  Employee portal":
                     st.error(f"Could not save: {err}")
     else:
         st.info("Select your department and name (or Manager / HR view) above to get started.")
+
+# ========================================================================
+# SECTION D — COMPANY PROFILE
+# ========================================================================
+elif section == "📋  Company profile":
+    st.caption("Everything collected from the Grandiose team so far — from the 27 Jul personal meeting with the GM")
+
+    COMPANY_INFO = [
+        ("🏭", "Production capacity & growth", [
+            "Flour Country Bakery is currently running at only 30-35% utilization — roughly 65% headroom still available.",
+            "Target is 100% utilization within a year, with an estimated AED 10M/month production potential once reached.",
+            "Granola Catering is running at approximately 50% utilization.",
+            "Company-wide headcount is ~110 today, with a growth target of 200 within a year.",
+        ]),
+        ("⏰", "Shift structure", [
+            "Standard shift is 9 hours, including a break.",
+            "Arabic Bread is the one line that also runs a separate night shift, in addition to the standard morning shift.",
+        ]),
+        ("🛒", "Sales channel mix (B2B vs. B2C)", [
+            "Flour Country Bakery is 100% B2B.",
+            "Catering is roughly 35% B2C and 65% B2B.",
+        ]),
+        ("💰", "Cost structure & targets", [
+            "Food cost: capped at a maximum of 30%.",
+            "Labour cost: currently running at ~40% — target is 16-18%, with 20% as the absolute ceiling.",
+            "Utilities: capped at a maximum of 10%.",
+            "Rent: capped at a maximum of 15%.",
+            "Net profit target: 20-25%.",
+            "Total expense ceiling (all costs combined): 75-80% of revenue.",
+        ]),
+        ("🏷️", "Pricing approach", [
+            "Material cost is scaled 35-50% depending on client volume.",
+            "Supermarket supply is priced cost-to-cost, with no margin built in.",
+            "B2B contract pricing varies by negotiation and account.",
+        ]),
+        ("📈", "Productivity benchmark", [
+            "No formal labour productivity measurement system exists yet.",
+            "The GM's working rule of thumb: each employee should generate approximately AED 1,000/day of value.",
+            "This is the benchmark now built into the Employee Portal's productivity tracking.",
+        ]),
+        ("🔥", "Top & underutilized product lines", [
+            "Top revenue/profit drivers: daily bread (Arabic bread, toasted bread, buns, Samurai sandwich) and pastry.",
+            "Least-utilized lines: Tahina and Turkish baklava — both flagged as ramp-up focus areas.",
+        ]),
+        ("📦", "Inventory management", [
+            "Stock is managed on a FIFO (first-in, first-out) basis.",
+            "Ordering cycles: bi-monthly for shelf-stable/dry goods, weekly for short-shelf-life items, daily for fresh fruit and vegetables.",
+            "Payment terms: ~95% of suppliers are on net 90 days (60 days from statement of account); a few critical items run 30-60 days.",
+            "Approved vendor base: ~65-70 for bakery, ~160-170 for catering.",
+            "Safety stock normally aligns to supplier lead times, extending to ~3 months during geopolitical disruptions.",
+            "Packaging (sourced from China/Indonesia): ~1 month of stock held against a 15-day lead time.",
+            "De-risking in progress: alternate vendors are being onboarded for critical ingredients.",
+            "KPIs monitored: inventory movement (fast/slow movers), depletion cycles, and overstock/obsolescence — reviewed bi-weekly.",
+        ]),
+        ("🗑️", "Wastage management", [
+            "Current wastage: 2-3% — target is 1%.",
+            "Plan to close the gap: grow sales volume and push supermarket promotions on affected items.",
+            "Near-expiry raw materials are redirected into production rather than discarded.",
+            "Near-expiry finished goods (with shelf life over 30 days) move to clearance pricing.",
+            "Fully expired stock is written off.",
+            "Yield: catering runs ~90-95% (about 5% loss to spillage/damage); bakery yield loss is minimal; frozen raw meat yield loss is 20-25%.",
+        ]),
+        ("🗓️", "Dashboard & next steps (from this meeting)", [
+            "ERP integration is planned so the dashboard can eventually auto-update from live company data.",
+            "In-dashboard email sharing was requested — ✅ already built into this dashboard.",
+            "An employee productivity module linking individual output to section-level sales was requested — ✅ already built into the Employee Portal.",
+            "A separate, equivalent dashboard is planned for Granola Catering.",
+            "The GM wants the dashboard link shared for internal review before Friday.",
+            "Next steps: send Friday feedback slots, share the dashboard link, and continue refining with confirmed figures ahead of the mid-review.",
+        ]),
+    ]
+
+    for icon, title, points in COMPANY_INFO:
+        with st.container(border=True):
+            rows = "".join([f"<div class='info-row'><span>{p}</span></div>" for p in points])
+            st.markdown(f"<div style='padding:14px 18px;'><h4 style='margin:0 0 10px 0; font-size:1.05rem;'>"
+                        f"{icon} {title}</h4>{rows}</div>", unsafe_allow_html=True)
+
+    st.caption("Source: personal meeting with the Grandiose GM, 27 Jul. Figures here are as reported in that "
+               "conversation and should be treated as the current source of truth pending any further updates.")
 
 st.markdown("---")
 st.caption("Financial Performance and Cost Optimization for Grandiose Bakery Operations · GIP III · "
