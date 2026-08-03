@@ -1,5 +1,5 @@
 """
-Grandiose Bakery — Financial Performance & Cost Optimization Dashboard
+Grandiose Bakery — Financial Performance & Cost Optimisation Dashboard
 GIP III | Parineeta Jain, Rajveer Singh, Tarang Gupta
 
 Bold dark-theme redesign: near-black canvas, vibrant amber/coral/violet
