@@ -58,6 +58,12 @@ COLORS = {
 
 CATEGORICAL = [COLORS["primary"], COLORS["secondary"], "#F0DCEA", COLORS["tertiary"], COLORS["success"]]
 
+def hex_to_rgba(hex_color, alpha):
+    hex_color = hex_color.lstrip("#")
+    r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
 st.markdown("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -114,6 +120,26 @@ st.markdown(f"""
     div[data-testid="stPopoverBody"] ::placeholder {{
         color: {COLORS['text_soft']} !important;
         opacity: 1 !important;
+    }}
+
+    /* Every floating/portaled element (tooltips, selectbox dropdown menus,
+       date pickers, multiselect lists) gets rendered by baseweb OUTSIDE
+       .stApp, in a "baseweb-layer" portal attached to <body> — none of it
+       inherits our dark theme by default, which is why hover tooltips and
+       dropdown option lists have shown up as white-on-white. Fix them all
+       at once rather than chasing each one individually. */
+    .baseweb-layer, [data-testid="stTooltipContent"], [data-baseweb="menu"],
+    [data-baseweb="popover"], [data-baseweb="calendar"] {{
+        background-color: {COLORS['surface']} !important;
+        border: 1px solid {COLORS['border']} !important;
+    }}
+    .baseweb-layer *, [data-testid="stTooltipContent"] *, [data-baseweb="menu"] *,
+    [data-baseweb="popover"] *, [data-baseweb="calendar"] * {{
+        color: {COLORS['text']} !important;
+        background-color: transparent !important;
+    }}
+    [data-baseweb="menu"] li:hover, [data-baseweb="menu"] li[aria-selected="true"] {{
+        background-color: {hex_to_rgba(COLORS['primary'], 0.18)} !important;
     }}
 
     /* Every button in the app (st.button, form_submit_button, download_button,
@@ -238,11 +264,6 @@ def sparkline(values, color):
         xaxis=dict(visible=False), yaxis=dict(visible=False), showlegend=False,
     )
     return fig
-
-def hex_to_rgba(hex_color, alpha):
-    hex_color = hex_color.lstrip("#")
-    r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-    return f"rgba({r},{g},{b},{alpha})"
 
 # ----------------------------------------------------------------------
 # SAMPLE / BENCHMARK DATA (placeholder until mentor-provided actuals)
@@ -1054,7 +1075,8 @@ elif section == "👤  Employee portal":
 
         # --- Daily log ---
         with etab2:
-            st.caption("Log today's (or a past) shift — feeds directly into your performance tab above.")
+            st.caption("Log today's (or a past) shift in plain counts — no percentages to work out yourself. "
+                       "Your performance report will still show the percentages, calculated automatically.")
             with st.form(f"daily_log_form_{emp_id}", clear_on_submit=True):
                 log_date = st.date_input("Date", value=datetime.now().date())
                 if emp_dept == "Arabic Bread":
@@ -1063,12 +1085,16 @@ elif section == "👤  Employee portal":
                 else:
                     shift = "Morning"
                 colf1, colf2 = st.columns(2)
-                units = colf1.number_input("Units produced", 0, 5000, 250, 10)
-                wastage = colf2.number_input("Wastage (%)", 0.0, 100.0, 2.5, 0.1,
-                                              help="Company target is 1%; current company-wide average is 2-3%.")
+                units = colf1.number_input("Units produced (good units)", 0, 5000, 250, 10)
+                units_wasted = colf2.number_input("Units wasted / discarded", 0, 1000, 6, 1,
+                                                   help="How many units were thrown away, spoiled, or damaged this shift.")
                 hours = colf1.number_input("Hours worked", 0.0, 16.0, 8.0, 0.5)
-                batch_adh = colf2.slider("Batch-time adherence (%)", 0, 100, 90)
-                quality = st.slider("Quality-check pass rate (%)", 0, 100, 95)
+                units_failed_qc = colf2.number_input("Units that failed QC check", 0, 1000, 5, 1,
+                                                       help="How many units failed a quality check this shift.")
+                colf3, colf4 = st.columns(2)
+                batches_completed = colf3.number_input("Batches completed", 0, 200, 10, 1)
+                batches_on_time = colf4.number_input("Batches finished on/within standard time", 0, 200, 9, 1,
+                                                       help="Of the batches completed, how many finished within the standard time for that batch?")
                 revenue = st.number_input(
                     "Revenue/value generated (AED, optional)", 0.0, 50000.0, 0.0, 50.0,
                     help="Feeds the productivity benchmark: GM's rule of thumb is each employee should "
@@ -1077,15 +1103,22 @@ elif section == "👤  Employee portal":
                 notes = st.text_area("Notes (optional)", placeholder="Any incidents, equipment issues, etc.")
                 submitted = st.form_submit_button("Submit shift log", width='stretch')
                 if submitted:
+                    total_output = units + units_wasted
+                    wastage_pct = round((units_wasted / total_output) * 100, 1) if total_output > 0 else 0.0
+                    batch_adh_pct = round((batches_on_time / batches_completed) * 100) if batches_completed > 0 else 0
+                    quality_pct = round(max(units - units_failed_qc, 0) / units * 100) if units > 0 else 0
                     ok, err = portal_insert("employee_performance", {
                         "employee_name": emp_name, "employee_id": emp_id, "department": emp_dept,
                         "log_date": str(log_date), "shift": shift, "units_produced": int(units),
-                        "wastage_pct": float(wastage), "hours_worked": float(hours),
-                        "batch_time_adherence_pct": int(batch_adh), "quality_pass_pct": int(quality),
+                        "units_wasted": int(units_wasted), "batches_completed": int(batches_completed),
+                        "batches_on_time": int(batches_on_time), "units_failed_qc": int(units_failed_qc),
+                        "wastage_pct": wastage_pct, "hours_worked": float(hours),
+                        "batch_time_adherence_pct": batch_adh_pct, "quality_pass_pct": quality_pct,
                         "revenue_generated": float(revenue), "notes": notes,
                     })
                     if ok:
-                        st.success("Shift log saved.")
+                        st.success(f"Shift log saved — wastage {wastage_pct}%, batch adherence {batch_adh_pct}%, "
+                                   f"quality pass {quality_pct}% (calculated automatically from your counts).")
                     else:
                         st.error(f"Could not save: {err}")
 
