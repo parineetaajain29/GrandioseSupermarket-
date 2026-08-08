@@ -22,7 +22,10 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
-from fpdf import FPDF
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from supabase import create_client
 
 # ----------------------------------------------------------------------
@@ -344,57 +347,279 @@ category_panels = {
 }
 
 # ----------------------------------------------------------------------
-# STATUS REPORT (PDF) + EMAIL DELIVERY
+# STATUS REPORT (EXCEL) + EMAIL DELIVERY
+# Each "Email this ..." button builds a workbook tailored to the section
+# it's called from, not a generic dashboard dump — Performance Tracker,
+# Scenario & Resilience, a department comparison, or the Company Profile.
 # ----------------------------------------------------------------------
-def build_status_report_pdf():
-    """Builds a one-page PDF snapshot of current KPIs and category panels."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "Grandiose Bakery - Financial Status Report", ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(90, 90, 90)
-    pdf.cell(0, 6, f"Generated {datetime.now().strftime('%d %B %Y, %H:%M')} | GIP III | Bakery division only", ln=True)
-    pdf.ln(4)
+XL_PRIMARY = "B9A0DC"
+XL_DARK = "1A1424"
+XL_HEADER_FONT = "FFFFFF"
+XL_TEXT = "2B2733"
+XL_SOFT_TEXT = "6B6577"
+XL_LIGHT_FILL = "F3EFFA"
+XL_BORDER_COLOR = "D9D2E9"
 
-    pdf.set_text_color(20, 20, 20)
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Headline KPIs", ln=True)
-    pdf.set_font("Helvetica", "", 11)
-    kpi_lines = [
-        f"Food cost %: {baseline['food_cost_pct']}%  (1.2pt above target)",
-        f"Wastage %: {baseline['wastage_pct']}%  (down 0.3pt vs last month)",
-        f"Gross margin: {baseline['gross_margin_pct']}%  (flat vs last month)",
-        f"Cost per unit: AED {baseline['cost_per_unit']:.2f}  (standard: AED {baseline['standard_cost_per_unit']:.2f})",
+def _xl_border():
+    side = Side(style="thin", color=XL_BORDER_COLOR)
+    return Border(left=side, right=side, top=side, bottom=side)
+
+def _xl_title(ws, title, subtitle=None):
+    ws["A1"] = title
+    ws["A1"].font = Font(name="Arial", size=16, bold=True, color=XL_DARK)
+    row = 2
+    if subtitle:
+        ws.cell(row=2, column=1, value=subtitle).font = Font(name="Arial", size=10, italic=True, color=XL_SOFT_TEXT)
+        row = 3
+    return row + 1
+
+def _xl_section(ws, row, text):
+    ws.cell(row=row, column=1, value=text).font = Font(name="Arial", size=12, bold=True, color=XL_DARK)
+    return row + 1
+
+def _xl_header_row(ws, row, headers, start_col=1):
+    border = _xl_border()
+    for i, h in enumerate(headers):
+        c = ws.cell(row=row, column=start_col + i, value=h)
+        c.font = Font(name="Arial", size=10, bold=True, color=XL_HEADER_FONT)
+        c.fill = PatternFill("solid", fgColor=XL_PRIMARY)
+        c.alignment = Alignment(horizontal="left", vertical="center")
+        c.border = border
+    return row + 1
+
+def _xl_row(ws, row, values, start_col=1, formats=None, zebra=False):
+    border = _xl_border()
+    fill = PatternFill("solid", fgColor=XL_LIGHT_FILL) if zebra else None
+    for i, v in enumerate(values):
+        c = ws.cell(row=row, column=start_col + i, value=v)
+        c.font = Font(name="Arial", size=10, color=XL_TEXT)
+        c.border = border
+        if fill:
+            c.fill = fill
+        if formats and i < len(formats) and formats[i]:
+            c.number_format = formats[i]
+    return row + 1
+
+def _xl_autosize(ws, max_width=64):
+    widths = {}
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value is None or hasattr(cell, "column_letter") is False:
+                continue
+            try:
+                col = cell.column_letter
+            except AttributeError:
+                continue
+            widths[col] = max(widths.get(col, 8), min(len(str(cell.value)) + 3, max_width))
+    for col, w in widths.items():
+        ws.column_dimensions[col].width = w
+
+def _xl_footer(ws, row):
+    row += 1
+    ws.cell(row=row, column=1,
+             value=f"Generated {datetime.now().strftime('%d %B %Y, %H:%M')} · GIP III · Bakery division only, catering excluded"
+             ).font = Font(name="Arial", size=8, italic=True, color=XL_SOFT_TEXT)
+    row += 1
+    ws.cell(row=row, column=1,
+             value="Prepared by Parineeta Jain, Rajveer Singh, and Tarang Gupta · Figures are illustrative "
+                   "benchmarks pending Grandiose-provided actuals."
+             ).font = Font(name="Arial", size=8, italic=True, color=XL_SOFT_TEXT)
+    return row
+
+PCT_FMT = '0.0"%"'
+AED_FMT = '"AED "#,##0.00'
+NUM_FMT = "#,##0"
+
+
+def _build_performance_tracker_sheet(wb):
+    ws = wb.create_sheet("Performance Tracker")
+    row = _xl_title(ws, "Grandiose Bakery — Performance Tracker",
+                     "Where the bakery division stands today")
+
+    row = _xl_section(ws, row, "Headline KPIs")
+    row = _xl_header_row(ws, row, ["Metric", "Value", "vs. target / last month"])
+    kpi_rows = [
+        ("Food cost %", baseline["food_cost_pct"], "1.2pt above 30% target"),
+        ("Wastage %", baseline["wastage_pct"], "Down 0.3pt vs last month"),
+        ("Gross margin %", baseline["gross_margin_pct"], "Flat vs last month"),
+        ("Cost per unit (AED)", baseline["cost_per_unit"], f"Standard: AED {baseline['standard_cost_per_unit']:.2f}"),
     ]
-    for line in kpi_lines:
-        pdf.cell(0, 7, f"- {line}", ln=True)
-    pdf.ln(3)
+    for i, (label, val, note) in enumerate(kpi_rows):
+        fmt = AED_FMT if "unit" in label.lower() else PCT_FMT
+        row = _xl_row(ws, row, [label, val, note], formats=[None, fmt, None], zebra=(i % 2 == 0))
+    row += 1
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Category panels", ln=True)
-    for name, metrics in category_panels.items():
-        clean_name = name.split(" ", 1)[-1]  # drop emoji for PDF font compatibility
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 7, clean_name, ln=True)
-        pdf.set_font("Helvetica", "", 10)
+    row = _xl_section(ws, row, "Food cost % — last 6 months vs. 30% target")
+    row = _xl_header_row(ws, row, ["Month", "Food cost %", "Target %"])
+    for i, (m, fc, tg) in enumerate(zip(months, food_cost_trend, target_line)):
+        row = _xl_row(ws, row, [m, fc, tg], formats=[None, PCT_FMT, PCT_FMT], zebra=(i % 2 == 0))
+    row += 1
+
+    row = _xl_section(ws, row, "Category panels")
+    row = _xl_header_row(ws, row, ["Category", "Metric", "Value"])
+    zebra = False
+    for cat_name, metrics in category_panels.items():
+        clean_cat = cat_name.split(" ", 1)[-1]
         for k, v in metrics.items():
-            pdf.cell(0, 6, f"    {k}: {v}", ln=True)
-        pdf.ln(1)
+            row = _xl_row(ws, row, [clean_cat, k, v], zebra=zebra)
+            zebra = not zebra
+    row += 1
 
-    pdf.ln(2)
-    pdf.set_font("Helvetica", "I", 9)
-    pdf.set_text_color(120, 120, 120)
-    pdf.multi_cell(0, 5, "Prepared by Parineeta Jain, Rajveer Singh, and Tarang Gupta. "
-                         "Figures shown are illustrative benchmarks pending Grandiose's actual bakery data. "
-                         "Catering is excluded, per GIP III scope.")
-
-    return bytes(pdf.output())
+    _xl_footer(ws, row)
+    _xl_autosize(ws)
+    return ws
 
 
-def send_report_email(recipient_email, note=""):
-    """Sends the status-report PDF to recipient_email using SMTP credentials
-    stored in Streamlit secrets. Returns (success: bool, message: str)."""
+def _build_scenario_resilience_sheets(wb, context):
+    infl = context.get("inflation", {})
+    disr = context.get("disruption", {})
+    pand = context.get("pandemic", {})
+    supp = context.get("supplier", {})
+
+    # --- Inflation sensitivity ---
+    ws = wb.create_sheet("Inflation Sensitivity")
+    row = _xl_title(ws, "Scenario & Resilience — Inflation Sensitivity",
+                     "Dual-track inflation input, net of any subsidy/offset")
+    row = _xl_section(ws, row, "Assumptions used")
+    row = _xl_header_row(ws, row, ["Input", "Value"])
+    row = _xl_row(ws, row, ["Headline inflation forecast", infl.get("headline_inf", 0)], formats=[None, PCT_FMT], zebra=True)
+    row = _xl_row(ws, row, ["Actual food-input inflation", infl.get("food_inf", 0)], formats=[None, PCT_FMT])
+    row = _xl_row(ws, row, ["Subsidy / price-cap offset (AED/unit)", infl.get("subsidy_offset", 0)], formats=[None, AED_FMT], zebra=True)
+    row += 1
+    row = _xl_section(ws, row, "Resulting cost per unit")
+    row = _xl_header_row(ws, row, ["Scenario", "Cost per unit (AED)"])
+    row = _xl_row(ws, row, ["Current", infl.get("base_cost", 0)], formats=[None, AED_FMT], zebra=True)
+    row = _xl_row(ws, row, ["Headline scenario", infl.get("adj_cost_headline", 0)], formats=[None, AED_FMT])
+    row = _xl_row(ws, row, ["Food-inflation scenario", infl.get("adj_cost_food", 0)], formats=[None, AED_FMT], zebra=True)
+    row = _xl_row(ws, row, ["Food cost % under food-inflation scenario", infl.get("food_cost_pct_adj", 0)], formats=[None, PCT_FMT])
+    _xl_footer(ws, row)
+    _xl_autosize(ws)
+
+    # --- Supply disruption ---
+    ws2 = wb.create_sheet("Supply Disruption")
+    row = _xl_title(ws2, "Scenario & Resilience — Supply Disruption Risk",
+                     "UAE imports 80-90% of its food, so this is mainly an import-shock model")
+    row = _xl_section(ws2, row, "Selected scenario")
+    row = _xl_header_row(ws2, row, ["Field", "Value"])
+    row = _xl_row(ws2, row, ["Scenario", disr.get("scenario", "—")], zebra=True)
+    row = _xl_row(ws2, row, ["Lead-time extension (days)", disr.get("delay_days", 0)], formats=[None, NUM_FMT])
+    row = _xl_row(ws2, row, ["Cost premium %", disr.get("cost_premium", 0)], formats=[None, PCT_FMT], zebra=True)
+    row = _xl_row(ws2, row, ["Stockout probability", disr.get("stockout_prob", 0) * 100], formats=[None, PCT_FMT])
+    row += 1
+    row = _xl_section(ws2, row, "Buffer vs. expected stockout cost")
+    row = _xl_header_row(ws2, row, ["Metric", "AED"])
+    row = _xl_row(ws2, row, ["Cost of holding buffer stock", disr.get("buffer_stock_cost", 0)], formats=[None, AED_FMT], zebra=True)
+    row = _xl_row(ws2, row, ["Expected cost of stockout", disr.get("expected_stockout_cost", 0)], formats=[None, AED_FMT])
+    _xl_footer(ws2, row)
+    _xl_autosize(ws2)
+
+    # --- Pandemic preparedness ---
+    ws3 = wb.create_sheet("Pandemic Preparedness")
+    row = _xl_title(ws3, "Scenario & Resilience — Pandemic Preparedness",
+                     "Demand-side and supply-side resilience, tracked together")
+    row = _xl_section(ws3, row, "Customer retention / attraction")
+    row = _xl_header_row(ws3, row, ["Metric", "Value"])
+    row = _xl_row(ws3, row, ["Repeat-purchase rate", pand.get("repeat_rate", 0)], formats=[None, PCT_FMT], zebra=True)
+    row = _xl_row(ws3, row, ["Delivery/online-order revenue share", pand.get("delivery_share", 0)], formats=[None, PCT_FMT])
+    row = _xl_row(ws3, row, ["Average basket size (AED)", pand.get("basket_size", 0)], formats=[None, AED_FMT], zebra=True)
+    row += 1
+    row = _xl_section(ws3, row, "Supply chain optimization")
+    row = _xl_header_row(ws3, row, ["Metric", "Value"])
+    row = _xl_row(ws3, row, ["Safety stock (days of cover)", pand.get("safety_days", 0)], formats=[None, NUM_FMT], zebra=True)
+    row = _xl_row(ws3, row, ["Qualified alternate suppliers / key ingredient", pand.get("alt_suppliers", 0)], formats=[None, NUM_FMT])
+    row = _xl_row(ws3, row, ["% ingredients single-sourced", pand.get("single_sourced", 0)], formats=[None, PCT_FMT], zebra=True)
+    _xl_footer(ws3, row)
+    _xl_autosize(ws3)
+
+    # --- Supplier concentration ---
+    ws4 = wb.create_sheet("Supplier Concentration")
+    row = _xl_title(ws4, "Scenario & Resilience — Supplier Concentration",
+                     "HHI-style concentration index, following Ali et al. (2022)'s UAE cereal-supply-risk methodology")
+    row = _xl_section(ws4, row, "Concentration index")
+    row = _xl_header_row(ws4, row, ["Metric", "Value"])
+    row = _xl_row(ws4, row, ["HHI", supp.get("hhi", 0)], formats=[None, NUM_FMT], zebra=True)
+    row = _xl_row(ws4, row, ["Risk level", supp.get("risk_label", "—")])
+    row += 1
+    shares_df = supp.get("shares_df")
+    if shares_df is not None and not shares_df.empty:
+        row = _xl_section(ws4, row, "Supplier spend mix")
+        row = _xl_header_row(ws4, row, list(shares_df.columns))
+        for i, (_, r) in enumerate(shares_df.iterrows()):
+            row = _xl_row(ws4, row, list(r.values), zebra=(i % 2 == 0))
+        row += 1
+    alt_df = supp.get("alt_df")
+    if alt_df is not None and not alt_df.empty:
+        row = _xl_section(ws4, row, "Pre-identified alternate suppliers")
+        row = _xl_header_row(ws4, row, list(alt_df.columns))
+        for i, (_, r) in enumerate(alt_df.iterrows()):
+            row = _xl_row(ws4, row, list(r.values), zebra=(i % 2 == 0))
+    _xl_footer(ws4, row)
+    _xl_autosize(ws4)
+
+
+def _build_department_sheet(wb, context):
+    dept_name = context.get("department", "Department")
+    ws = wb.create_sheet(dept_name[:31] if dept_name else "Department")
+    row = _xl_title(ws, f"Employee Portal — {dept_name} Comparison",
+                     "Performance ranking within this department")
+    headcount = context.get("headcount", "—")
+    tag = context.get("tag_label")
+    row = _xl_section(ws, row, f"Headcount on this line: {headcount}" + (f" · {tag}" if tag else ""))
+    df = context.get("summary_df")
+    if df is not None and not df.empty:
+        row = _xl_header_row(ws, row, list(df.columns))
+        for i, (_, r) in enumerate(df.iterrows()):
+            row = _xl_row(ws, row, list(r.values), zebra=(i % 2 == 0))
+    _xl_footer(ws, row)
+    _xl_autosize(ws)
+    return ws
+
+
+def _build_company_profile_sheet(wb, context):
+    ws = wb.create_sheet("Company Profile")
+    row = _xl_title(ws, "Grandiose Bakery — Company Profile",
+                     "Everything collected from the 27 Jul meeting with the GM")
+    company_info = context.get("company_info", [])
+    for icon, title, points in company_info:
+        row = _xl_section(ws, row, f"{icon} {title}")
+        for i, p in enumerate(points):
+            row = _xl_row(ws, row, [p], zebra=(i % 2 == 0))
+        row += 1
+    _xl_footer(ws, row)
+    _xl_autosize(ws)
+    return ws
+
+
+def build_excel_report(section, context=None):
+    """Builds a section-specific, formatted Excel workbook and returns raw bytes."""
+    context = context or {}
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    if section == "scenario_resilience":
+        _build_scenario_resilience_sheets(wb, context)
+    elif section == "employee_department":
+        _build_department_sheet(wb, context)
+    elif section == "company_profile":
+        _build_company_profile_sheet(wb, context)
+    else:
+        _build_performance_tracker_sheet(wb)
+
+    bio = BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
+SECTION_LABELS = {
+    "performance_tracker": ("Performance Tracker", "Performance_Tracker"),
+    "scenario_resilience": ("Scenario & Resilience", "Scenario_Resilience"),
+    "employee_department": ("Employee Department Comparison", "Department_Comparison"),
+    "company_profile": ("Company Profile", "Company_Profile"),
+}
+
+def send_report_email(recipient_email, note="", section="performance_tracker", context=None):
+    """Sends a section-specific Excel report to recipient_email using SMTP
+    credentials stored in Streamlit secrets. Returns (success: bool, message: str)."""
     try:
         sender_email = st.secrets["EMAIL_ADDRESS"]
         sender_password = st.secrets["EMAIL_APP_PASSWORD"]
@@ -405,21 +630,23 @@ def send_report_email(recipient_email, note=""):
 
     smtp_server = st.secrets.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(st.secrets.get("SMTP_PORT", 587))
+    section_title, section_slug = SECTION_LABELS.get(section, SECTION_LABELS["performance_tracker"])
 
     msg = MIMEMultipart()
     msg["From"] = sender_email
     msg["To"] = recipient_email
-    msg["Subject"] = "Grandiose Bakery — Financial Status Report"
-    body = ("Hi,\n\nPlease find attached the latest Grandiose bakery financial status report, "
-            "generated from the live dashboard.\n")
+    msg["Subject"] = f"Grandiose Bakery — {section_title} Report"
+    body = (f"Hi,\n\nPlease find attached the {section_title} report from the Grandiose bakery "
+            f"dashboard, generated just now.\n")
     if note:
         body += f"\nNote from sender:\n{note}\n"
     body += "\n— Sent automatically from the Grandiose Bakery Dashboard (GIP III)"
     msg.attach(MIMEText(body, "plain"))
 
-    pdf_bytes = build_status_report_pdf()
-    attachment = MIMEApplication(pdf_bytes, _subtype="pdf")
-    filename = f"Grandiose_Bakery_Status_Report_{datetime.now().strftime('%Y%m%d')}.pdf"
+    xlsx_bytes = build_excel_report(section, context)
+    attachment = MIMEApplication(
+        xlsx_bytes, _subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    filename = f"Grandiose_Bakery_{section_slug}_{datetime.now().strftime('%Y%m%d')}.xlsx"
     attachment.add_header("Content-Disposition", "attachment", filename=filename)
     msg.attach(attachment)
 
@@ -435,9 +662,11 @@ def send_report_email(recipient_email, note=""):
 
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
-def render_email_share(key_suffix, label="Email this report"):
+def render_email_share(key_suffix, label="Email this report", section="performance_tracker", context=None):
     """Small 📧 popover button — usable right under any chart/section so
-    people don't have to go back to the sidebar to share the dashboard."""
+    people don't have to go back to the sidebar to share the dashboard.
+    Sends a formatted Excel workbook tailored to the calling section."""
+    section_title, _ = SECTION_LABELS.get(section, SECTION_LABELS["performance_tracker"])
     with st.popover("📧", help=label):
         st.markdown(f"**{label}**")
         recipient = st.text_input("Recipient email", placeholder="name@company.com", key=f"email_recipient_{key_suffix}")
@@ -446,13 +675,13 @@ def render_email_share(key_suffix, label="Email this report"):
             if not recipient or not re.match(EMAIL_PATTERN, recipient):
                 st.error("Enter a valid email address.")
             else:
-                with st.spinner("Sending..."):
-                    success, message = send_report_email(recipient, note)
+                with st.spinner("Building and sending Excel report..."):
+                    success, message = send_report_email(recipient, note, section=section, context=context)
                 if success:
                     st.success(message)
                 else:
                     st.error(message)
-        st.caption("Sends a one-page PDF snapshot of the current KPIs and category panels.")
+        st.caption(f"Sends a formatted Excel workbook of the current {section_title} data.")
 
 
 st.sidebar.markdown(f"""
@@ -491,13 +720,13 @@ with st.sidebar.expander("📧  Email this report", expanded=False):
         if not recipient or not re.match(email_pattern, recipient):
             st.error("Enter a valid email address.")
         else:
-            with st.spinner("Sending..."):
-                success, message = send_report_email(recipient, note)
+            with st.spinner("Building and sending Excel report..."):
+                success, message = send_report_email(recipient, note, section="performance_tracker")
             if success:
                 st.success(message)
             else:
                 st.error(message)
-    st.caption("Sends a one-page PDF snapshot of the current KPIs and category panels.")
+    st.caption("Sends a formatted Excel workbook of the current Performance Tracker data.")
 
 
 # ----------------------------------------------------------------------
@@ -555,6 +784,9 @@ DEPARTMENT_PRIORITY_TAG = {
 
 # GM's stated productivity benchmark: each employee = AED 1,000/day value.
 VALUE_PER_EMPLOYEE_DAY_TARGET = 1000
+# Standard shift length per the MoM ("Standard shift is 9 hours, including a
+# break") — used to normalize revenue/hour up to a full standard day.
+STANDARD_SHIFT_HOURS = 9.0
 
 # Company-wide wastage target from the MoM (current is 2-3%, target is 1%).
 WASTAGE_TARGET_PCT = 1.0
@@ -743,7 +975,7 @@ if section == "📊  Performance tracker":
                            legend=dict(orientation="h", yanchor="bottom", y=1.03, x=0,
                                        font=dict(color=COLORS["text_soft"])))
         st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
-    render_email_share("trend_chart", "Email this food-cost trend")
+    render_email_share("trend_chart", "Email this Performance Tracker report", section="performance_tracker")
 
     st.markdown("#### Category panels")
     cols2 = st.columns(4)
@@ -753,7 +985,7 @@ if section == "📊  Performance tracker":
                 rows = "".join([f"<div class='cat-row'><span>{k}</span><span>{v}</span></div>" for k, v in metrics.items()])
                 st.markdown(f"<div style='padding:12px 16px;'><h4 style='margin:0 0 8px 0; font-size:1rem;'>{name}</h4>{rows}</div>",
                             unsafe_allow_html=True)
-    render_email_share("category_panels", "Email the full status report")
+    render_email_share("category_panels", "Email this Performance Tracker report", section="performance_tracker")
 
 # ========================================================================
 # TAB B — SCENARIO & RESILIENCE
@@ -932,7 +1164,7 @@ elif section == "🧭  Scenario & resilience":
         shares = edited["Spend share (%)"].astype(float)
         total = shares.sum()
         shares_norm = shares / total * 100 if total > 0 else shares
-        hhi = round((shares_norm ** 2).sum() * 100, 0)
+        hhi = round((shares_norm ** 2).sum(), 0)
 
         if hhi < 1500:
             risk_label, risk_badge = "Low concentration risk", "pill-ok"
@@ -964,7 +1196,25 @@ elif section == "🧭  Scenario & resilience":
         })
         st.dataframe(alt_df, width='stretch', hide_index=True)
 
-    render_email_share("scenario_resilience", "Email the full status report")
+    scenario_context = {
+        "inflation": {
+            "headline_inf": headline_inf, "food_inf": food_inf, "subsidy_offset": subsidy_offset,
+            "base_cost": base_cost, "adj_cost_headline": adj_cost_headline, "adj_cost_food": adj_cost_food,
+            "food_cost_pct_adj": food_cost_pct_adj,
+        },
+        "disruption": {
+            "scenario": choice, "delay_days": delay_days, "cost_premium": cost_premium,
+            "stockout_prob": stockout_prob, "buffer_stock_cost": buffer_stock_cost,
+            "expected_stockout_cost": expected_stockout_cost,
+        },
+        "pandemic": {
+            "repeat_rate": repeat_rate, "delivery_share": delivery_share, "basket_size": basket_size,
+            "safety_days": safety_days, "alt_suppliers": alt_suppliers, "single_sourced": single_sourced,
+        },
+        "supplier": {"hhi": hhi, "risk_label": risk_label, "shares_df": edited, "alt_df": alt_df},
+    }
+    render_email_share("scenario_resilience", "Email this Scenario & Resilience report",
+                        section="scenario_resilience", context=scenario_context)
 
 # ========================================================================
 # SECTION C — EMPLOYEE PORTAL
@@ -1061,9 +1311,9 @@ elif section == "👤  Employee portal":
                 # --- Productivity benchmark (AED 1,000/day per GM's rule of thumb) ---
                 c5, c6 = st.columns(2)
                 with c5, st.container(border=True):
-                    avg_hours = perf_df["hours_worked"].mean() if perf_df["hours_worked"].mean() > 0 else 8.0
+                    avg_hours = perf_df["hours_worked"].mean() if perf_df["hours_worked"].mean() > 0 else STANDARD_SHIFT_HOURS
                     avg_revenue = perf_df["revenue_generated"].mean() if "revenue_generated" in perf_df.columns else 0.0
-                    value_per_day = (avg_revenue / avg_hours) * 8 if avg_hours else avg_revenue
+                    value_per_day = (avg_revenue / avg_hours) * STANDARD_SHIFT_HOURS if avg_hours else avg_revenue
                     val_pill = "pill-ok" if value_per_day >= VALUE_PER_EMPLOYEE_DAY_TARGET else "pill-warn"
                     st.markdown(f"<div class='kpi-label'>Value generated / day</div>"
                                 f"<div class='kpi-value' style='font-size:1.7rem;'>AED {value_per_day:,.0f}</div>"
@@ -1123,7 +1373,7 @@ elif section == "👤  Employee portal":
                 units = colf1.number_input("Units produced (good units)", 0, 5000, 250, 10)
                 units_wasted = colf2.number_input("Units wasted / discarded", 0, 1000, 6, 1,
                                                    help="How many units were thrown away, spoiled, or damaged this shift.")
-                hours = colf1.number_input("Hours worked", 0.0, 16.0, 8.0, 0.5)
+                hours = colf1.number_input("Hours worked", 0.0, 16.0, STANDARD_SHIFT_HOURS, 0.5)
                 units_failed_qc = colf2.number_input("Units that failed QC check", 0, 1000, 5, 1,
                                                        help="How many units failed a quality check this shift.")
                 colf3, colf4 = st.columns(2)
@@ -1216,9 +1466,9 @@ elif section == "👤  Employee portal":
 
                 def _value_per_day(row_group):
                     hrs = row_group["hours_worked"].mean()
-                    hrs = hrs if hrs and hrs > 0 else 8.0
+                    hrs = hrs if hrs and hrs > 0 else STANDARD_SHIFT_HOURS
                     rev = row_group["revenue_generated"].mean() if "revenue_generated" in row_group.columns else 0.0
-                    return (rev / hrs) * 8
+                    return (rev / hrs) * STANDARD_SHIFT_HOURS
 
                 dept_summary = dept_perf.groupby("employee_name").agg(
                     shifts_logged=("employee_name", "count"),
@@ -1264,6 +1514,16 @@ elif section == "👤  Employee portal":
                     st.dataframe(dept_summary[display_cols], width='stretch', hide_index=True)
                     st.caption("Performance score = 30% quality pass rate + 30% batch-time adherence + "
                                "20% (100 − wastage %) + 20% units produced (normalized to the department's top performer).")
+                    render_email_share(
+                        f"dept_{dept_filter}", f"Email the {dept_filter} comparison",
+                        section="employee_department",
+                        context={
+                            "department": dept_filter,
+                            "headcount": DEPARTMENT_HEADCOUNT.get(dept_filter, "—"),
+                            "tag_label": tag_label,
+                            "summary_df": dept_summary[display_cols],
+                        },
+                    )
 
                 with st.container(border=True):
                     st.markdown("###### Comparative progress across employees in this department")
@@ -1437,6 +1697,8 @@ elif section == "📋  Company profile":
 
     st.caption("Source: personal meeting with the Grandiose GM, 27 Jul. Figures here are as reported in that "
                "conversation and should be treated as the current source of truth pending any further updates.")
+    render_email_share("company_profile", "Email the Company Profile", section="company_profile",
+                        context={"company_info": COMPANY_INFO})
 
 st.markdown("---")
 st.caption("Financial Performance and Cost Optimization for Grandiose Bakery Operations · GIP III · "
