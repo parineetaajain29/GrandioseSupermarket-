@@ -4,3 +4,6 @@ numpy>=1.26
 plotly>=5.22
 openpyxl>=3.1
 supabase>=2.9
+anthropic>=0.40
+pypdf>=4.0
+python-docx>=1.1
