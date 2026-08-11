@@ -119,6 +119,48 @@ st.markdown(f"""
         color: {COLORS['text']} !important;
     }}
 
+    /* File uploader — large centered dashed drop zone, button-forward like
+       a "Select files / or drop files here" upload box, in our dark theme. */
+    [data-testid="stFileUploaderDropzone"] {{
+        background-color: {COLORS['surface']} !important;
+        border: 2px dashed {hex_to_rgba(COLORS['primary'], 0.55)} !important;
+        border-radius: 18px !important;
+        padding: 44px 24px !important;
+        flex-direction: column-reverse !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        gap: 14px !important;
+        min-height: 200px !important;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+    }}
+    [data-testid="stFileUploaderDropzone"]:hover {{
+        border-color: {COLORS['primary']} !important;
+        background-color: {COLORS['surface2']} !important;
+    }}
+    [data-testid="stFileUploaderDropzoneInstructions"],
+    [data-testid="stFileUploaderDropzoneInstructions"] * {{
+        color: {COLORS['text_soft']} !important;
+        justify-content: center !important;
+    }}
+    [data-testid="stFileUploaderDropzone"] svg {{
+        fill: {COLORS['text_soft']} !important;
+        width: 32px !important; height: 32px !important;
+    }}
+    [data-testid="stFileUploaderDropzone"] [data-testid^="stBaseButton"] {{
+        padding: 12px 32px !important;
+        font-size: 1rem !important;
+        border-radius: 12px !important;
+    }}
+    [data-testid="stFileUploaderFile"] {{
+        background-color: {COLORS['surface2']} !important;
+        border-radius: 10px !important;
+        border: 1px solid {COLORS['border']} !important;
+    }}
+    [data-testid="stFileUploaderFile"] * {{
+        color: {COLORS['text']} !important;
+    }}
+
     .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
     div[data-testid="stMarkdownContainer"], div[data-testid="stMarkdownContainer"] p {{
         color: {COLORS['text']} !important;
