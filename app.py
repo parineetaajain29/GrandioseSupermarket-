@@ -1253,24 +1253,91 @@ if section == "📊  Performance tracker":
                 st.plotly_chart(sparkline(trend, color), width='stretch',
                                  config={"displayModeBar": False}, key=f"spark_{label}")
 
+    st.markdown("#### Efficiency at a glance")
+    colG1, colG2 = st.columns(2)
+    with colG1:
+        with st.container(border=True):
+            st.markdown(f"<div class='kpi-label'>Wastage vs. 1% target</div>", unsafe_allow_html=True)
+            fig_waste_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=baseline['wastage_pct'],
+                number={'suffix': '%', 'font': {'color': COLORS['text'], 'size': 30, 'family': 'Bebas Neue'}},
+                gauge={
+                    'axis': {'range': [0, 8], 'tickcolor': COLORS['text_soft'],
+                             'tickfont': {'color': COLORS['text_soft'], 'size': 9}, 'tickwidth': 1},
+                    'bar': {'color': COLORS['primary'], 'thickness': 0.28},
+                    'bgcolor': 'rgba(0,0,0,0)',
+                    'borderwidth': 0,
+                    'steps': [
+                        {'range': [0, WASTAGE_TARGET_PCT], 'color': hex_to_rgba(COLORS['success'], 0.22)},
+                        {'range': [WASTAGE_TARGET_PCT, 3], 'color': hex_to_rgba(COLORS['warning'], 0.22)},
+                        {'range': [3, 8], 'color': hex_to_rgba(COLORS['danger'], 0.22)},
+                    ],
+                    'threshold': {'line': {'color': COLORS['primary_deep'], 'width': 3},
+                                  'thickness': 0.85, 'value': WASTAGE_TARGET_PCT},
+                },
+            ))
+            fig_waste_gauge.update_layout(**PLOTLY_DARK, height=210)
+            st.plotly_chart(fig_waste_gauge, width='stretch', config={"displayModeBar": False})
+            st.caption("Gold needle line marks the 1% company target · current is above target.")
+
+    with colG2:
+        with st.container(border=True):
+            st.markdown(f"<div class='kpi-label'>Cost structure (% of revenue)</div>", unsafe_allow_html=True)
+            cost_labels = ["Food cost", "Labour (target)", "Packaging", "Overhead", "Margin & other"]
+            cost_values = [baseline['food_cost_pct'], 20.0, 2.1, 9.4,
+                            max(100 - baseline['food_cost_pct'] - 20.0 - 2.1 - 9.4, 0)]
+            fig_cost_donut = go.Figure(go.Pie(
+                labels=cost_labels, values=cost_values, hole=0.62,
+                marker=dict(colors=CATEGORICAL, line=dict(color=COLORS["bg"], width=2)),
+                textfont=dict(color=COLORS["text"], size=10),
+            ))
+            fig_cost_donut.update_layout(
+                **PLOTLY_DARK, height=210, showlegend=True,
+                legend=dict(orientation="h", y=-0.15, font=dict(color=COLORS["text_soft"], size=9)),
+                annotations=[dict(text=f"<b>{baseline['gross_margin_pct']}%</b><br><span style='font-size:9px;color:{COLORS['text_soft']}'>margin</span>",
+                                   x=0.5, y=0.5, font=dict(size=16, color=COLORS['primary']), showarrow=False)],
+            )
+            st.plotly_chart(fig_cost_donut, width='stretch', config={"displayModeBar": False})
+            st.caption("Illustrative allocation, blending current actuals with target labour cost.")
+
     st.markdown("#### Food cost % vs target — last 6 months")
+    trend_view = st.radio("View", ["Historical", "Projected (+2 months)"], horizontal=True,
+                           label_visibility="collapsed", key="trend_view_toggle")
     with st.container(border=True):
         fig = go.Figure()
+        plot_months, plot_trend = list(months), list(food_cost_trend)
+        plot_target = list(target_line)
+        is_projected = trend_view.startswith("Projected")
+        if is_projected:
+            slope = food_cost_trend[-1] - food_cost_trend[-2]
+            proj_vals = [round(food_cost_trend[-1] + slope * i, 1) for i in (1, 2)]
+            plot_months = plot_months + ["Aug*", "Sep*"]
+            plot_trend = plot_trend + proj_vals
+            plot_target = plot_target + [target_line[-1], target_line[-1]]
         # glow effect: wide low-opacity trace behind crisp line
-        fig.add_trace(go.Scatter(x=months, y=food_cost_trend, mode="lines", line=dict(color=COLORS["primary"], width=10),
+        fig.add_trace(go.Scatter(x=plot_months, y=plot_trend, mode="lines", line=dict(color=COLORS["primary"], width=10),
                                   opacity=0.15, showlegend=False, hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=months, y=food_cost_trend, mode="lines+markers", name="Food cost %",
+        line_dash = "dot" if is_projected else "solid"
+        fig.add_trace(go.Scatter(x=plot_months[:6], y=plot_trend[:6], mode="lines+markers", name="Food cost %",
                                   line=dict(color=COLORS["primary"], width=3),
                                   marker=dict(size=8, color=COLORS["bg"], line=dict(color=COLORS["primary"], width=2)),
                                   fill="tozeroy", fillcolor=hex_to_rgba(COLORS["primary"], 0.12)))
-        fig.add_trace(go.Scatter(x=months, y=target_line, mode="lines", name="Target",
+        if is_projected:
+            fig.add_trace(go.Scatter(x=plot_months[5:], y=plot_trend[5:], mode="lines+markers", name="Projected",
+                                      line=dict(color=COLORS["primary_deep"], width=3, dash="dot"),
+                                      marker=dict(size=7, symbol="diamond", color=COLORS["bg"],
+                                                  line=dict(color=COLORS["primary_deep"], width=2))))
+        fig.add_trace(go.Scatter(x=plot_months, y=plot_target, mode="lines", name="Target",
                                   line=dict(color=COLORS["text_soft"], width=1.5, dash="dot")))
         fig.update_layout(**PLOTLY_DARK, height=300,
-                           yaxis=dict(ticksuffix="%", range=[28, 33], gridcolor=GRID_COLOR, zeroline=False),
+                           yaxis=dict(ticksuffix="%", range=[28, 34], gridcolor=GRID_COLOR, zeroline=False),
                            xaxis=dict(gridcolor="rgba(0,0,0,0)"),
                            legend=dict(orientation="h", yanchor="bottom", y=1.03, x=0,
                                        font=dict(color=COLORS["text_soft"])))
         st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+        if is_projected:
+            st.caption("* Projected months extrapolate the current trend line — illustrative, not a forecast model.")
     render_email_share("trend_chart", "Email this Performance Tracker report", section="performance_tracker")
 
     st.markdown("#### Category panels")
@@ -1472,16 +1539,39 @@ elif section == "🧭  Scenario & resilience":
         colM, colN = st.columns([1, 2])
         with colM:
             with st.container(border=True):
-                st.markdown(f"<div class='kpi-label'>Supplier concentration index (HHI)</div>"
-                            f"<div class='kpi-value' style='font-size:2.4rem;'>{hhi:,.0f}</div>"
-                            f"<span class='pill {risk_badge}'>{risk_label}</span>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-label'>Supplier concentration index (HHI)</div>", unsafe_allow_html=True)
+                fig_hhi = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=hhi,
+                    number={'font': {'color': COLORS['text'], 'size': 32, 'family': 'Bebas Neue'}},
+                    gauge={
+                        'axis': {'range': [0, 10000], 'tickcolor': COLORS['text_soft'],
+                                 'tickfont': {'color': COLORS['text_soft'], 'size': 9}, 'tickwidth': 1},
+                        'bar': {'color': COLORS['primary'], 'thickness': 0.28},
+                        'bgcolor': 'rgba(0,0,0,0)',
+                        'borderwidth': 0,
+                        'steps': [
+                            {'range': [0, 1500], 'color': hex_to_rgba(COLORS['success'], 0.20)},
+                            {'range': [1500, 2500], 'color': hex_to_rgba(COLORS['warning'], 0.22)},
+                            {'range': [2500, 10000], 'color': hex_to_rgba(COLORS['danger'], 0.22)},
+                        ],
+                        'threshold': {'line': {'color': COLORS['primary_deep'], 'width': 3},
+                                      'thickness': 0.85, 'value': hhi},
+                    },
+                ))
+                fig_hhi.update_layout(**PLOTLY_DARK, height=200)
+                st.plotly_chart(fig_hhi, width='stretch', config={"displayModeBar": False})
+                st.markdown(f"<span class='pill {risk_badge}'>{risk_label}</span>", unsafe_allow_html=True)
                 st.caption("Reference bands: <1,500 low · 1,500–2,500 moderate · >2,500 high (standard HHI convention).")
 
         with colN:
             with st.container(border=True):
                 fig3 = go.Figure(go.Pie(labels=edited["Supplier / origin"], values=shares_norm,
-                                         hole=0.55, marker=dict(colors=CATEGORICAL, line=dict(color=COLORS["surface"], width=2))))
-                fig3.update_layout(**PLOTLY_DARK, height=280, legend=dict(font=dict(color=COLORS["text_soft"])))
+                                         hole=0.62, marker=dict(colors=CATEGORICAL, line=dict(color=COLORS["bg"], width=2)),
+                                         textfont=dict(color=COLORS["text"], size=11)))
+                fig3.update_layout(**PLOTLY_DARK, height=280, legend=dict(font=dict(color=COLORS["text_soft"])),
+                                    annotations=[dict(text=f"<b>{hhi:,.0f}</b><br><span style='font-size:10px;color:{COLORS['text_soft']}'>HHI</span>",
+                                                       x=0.5, y=0.5, font=dict(size=20, color=COLORS['primary']), showarrow=False)])
                 st.plotly_chart(fig3, width='stretch', config={"displayModeBar": False})
 
         st.markdown("###### Pre-identified alternate suppliers (illustrative)")
