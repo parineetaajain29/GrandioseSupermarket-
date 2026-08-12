@@ -48,22 +48,24 @@ st.set_page_config(
 # secondary/tertiary) instead of generic blue/purple.
 # ----------------------------------------------------------------------
 COLORS = {
-    "bg":        "#0A0A0A",   # near-black — matches the portfolio site exactly
-    "surface":   "#16141E",   # dark plum-tinted card surface
-    "surface2":  "#1D1926",   # sidebar / secondary surface
-    "border":    "#2E2838",   # muted plum-gray border
-    "text":      "#F4F0F8",   # near-white, cool lilac-white
-    "text_soft": "#9C93AC",   # muted lilac-gray secondary text
-    "primary":   "#B9A0DC",   # soft lilac — main accent
-    "primary_d": "#6B5789",   # deeper lilac, for text on light-lilac backgrounds
-    "secondary": "#E8AECB",   # soft pink
-    "tertiary":  "#8C76B0",   # deeper plum/violet, for chart variety
-    "success":   "#C9B8E8",   # pale lilac — used for "on target / good" status
-    "warning":   "#D9A8C4",   # dusty rose/mauve — used for "caution" status
-    "danger":    "#9C6B8C",   # muted plum-wine — used for "risk" status (deliberately not red)
+    # Exact tokens from Stitch's "Grandiose Cinematic Dashboard" DESIGN.md
+    "bg":        "#0A0A0B",   # Level 0 background
+    "surface":   "#161618",   # Level 1 card surface
+    "surface2":  "#1C1B1C",   # sidebar / secondary surface (surface-container-low)
+    "border":    "#2A2A2C",   # card border
+    "text":      "#E5E2E3",   # on-surface, warm cream — headings
+    "text_soft": "#D0C5AF",   # on-surface-variant, muted warm tan — secondary text/labels
+    "primary":   "#F2CA50",   # primary gold — interactive states, positive metrics
+    "primary_deep": "#D4AF37",  # deeper gold — chart lines/gradients/dividers
+    "primary_d": "#3C2F00",   # on-primary — dark text for solid-gold CTA buttons
+    "secondary": "#C6C7C2",   # light gray, used sparingly
+    "tertiary":  "#8A8370",   # muted tan-gray, for chart variety
+    "success":   "#F2CA50",   # gold = positive, per this system's own semantics
+    "warning":   "#B8AE8E",   # muted khaki — caution status
+    "danger":    "#FFB4AB",   # error/risk status, straight from the design system's error token
 }
 
-CATEGORICAL = [COLORS["primary"], COLORS["secondary"], "#F0DCEA", COLORS["tertiary"], COLORS["success"]]
+CATEGORICAL = [COLORS["primary"], COLORS["primary_deep"], COLORS["text"], COLORS["text_soft"], COLORS["secondary"]]
 
 def hex_to_rgba(hex_color, alpha):
     hex_color = hex_color.lstrip("#")
@@ -74,7 +76,7 @@ def hex_to_rgba(hex_color, alpha):
 st.markdown("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
@@ -124,7 +126,7 @@ st.markdown(f"""
     [data-testid="stFileUploaderDropzone"] {{
         background-color: {COLORS['surface']} !important;
         border: 2px dashed {hex_to_rgba(COLORS['primary'], 0.55)} !important;
-        border-radius: 18px !important;
+        border-radius: 4px !important;
         padding: 44px 24px !important;
         flex-direction: column-reverse !important;
         align-items: center !important;
@@ -150,11 +152,11 @@ st.markdown(f"""
     [data-testid="stFileUploaderDropzone"] [data-testid^="stBaseButton"] {{
         padding: 12px 32px !important;
         font-size: 1rem !important;
-        border-radius: 12px !important;
+        border-radius: 4px !important;
     }}
     [data-testid="stFileUploaderFile"] {{
         background-color: {COLORS['surface2']} !important;
-        border-radius: 10px !important;
+        border-radius: 4px !important;
         border: 1px solid {COLORS['border']} !important;
     }}
     [data-testid="stFileUploaderFile"] * {{
@@ -164,18 +166,18 @@ st.markdown(f"""
     .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
     div[data-testid="stMarkdownContainer"], div[data-testid="stMarkdownContainer"] p {{
         color: {COLORS['text']} !important;
-        font-family: 'Space Grotesk', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
     }}
     div[data-testid="stCaptionContainer"], .stApp small {{ color: {COLORS['text_soft']} !important; }}
     h1, h2 {{
-        color: {COLORS['text']} !important; font-family: 'Anton', sans-serif !important;
-        font-weight: 400 !important; letter-spacing: 0.5px;
+        color: {COLORS['text']} !important; font-family: 'Bebas Neue', sans-serif !important;
+        font-weight: 400 !important; letter-spacing: -0.01em; text-transform: uppercase;
     }}
     h3, h4, h5 {{
-        color: {COLORS['text']} !important; font-family: 'Space Grotesk', sans-serif !important;
-        font-weight: 700 !important;
+        color: {COLORS['text']} !important; font-family: 'Bebas Neue', sans-serif !important;
+        font-weight: 400 !important; letter-spacing: 0.04em; text-transform: uppercase;
     }}
-    section[data-testid="stSidebar"] * {{ color: {COLORS['text']} !important; font-family: 'Space Grotesk', sans-serif !important; }}
+    section[data-testid="stSidebar"] * {{ color: {COLORS['text']} !important; font-family: 'Inter', sans-serif !important; }}
 
     /* Restore Streamlit's icon-ligature font wherever our broad font-family
        rules above would otherwise break it — this is what renders expander/
@@ -193,7 +195,7 @@ st.markdown(f"""
     div[data-testid="stPopoverBody"] {{
         background-color: {COLORS['surface']} !important;
         border: 1px solid {COLORS['border']} !important;
-        border-radius: 14px !important;
+        border-radius: 4px !important;
     }}
     div[data-testid="stPopoverBody"] * {{
         color: {COLORS['text']} !important;
@@ -228,26 +230,42 @@ st.markdown(f"""
         background-color: {hex_to_rgba(COLORS['primary'], 0.18)} !important;
     }}
 
-    /* Every button in the app (st.button, form_submit_button, download_button,
-       popover triggers, etc.) — Streamlit's default "secondary" button style
-       doesn't have enough contrast once our text-color override is applied,
-       so every button gets a consistent solid lilac pill with dark text. */
+    /* Buttons, per the DESIGN.md: "Primary buttons are ghost-style with a
+       Gold border and Gold label-sm text. Fill buttons are only used for
+       the most critical Call to Action." So every button defaults to ghost,
+       and only Streamlit's type="primary" buttons get the solid gold fill —
+       reserved deliberately for the handful of true CTAs (Submit, Send). */
     [data-testid^="stBaseButton"] {{
-        background-color: {COLORS['primary']} !important;
-        border: none !important;
-        border-radius: 10px !important;
+        background-color: transparent !important;
+        border: 1px solid {COLORS['text_soft']} !important;
+        border-radius: 4px !important;
+        transition: border-color 0.2s ease, background-color 0.2s ease;
     }}
     [data-testid^="stBaseButton"] p, [data-testid^="stBaseButton"] span,
     [data-testid^="stBaseButton"] div {{
-        color: #1A1424 !important;
-        font-weight: 700 !important;
+        color: {COLORS['primary']} !important;
+        font-weight: 600 !important;
+        text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.08em;
     }}
     [data-testid^="stBaseButton"]:hover {{
-        background-color: {COLORS['secondary']} !important;
+        border-color: {COLORS['primary']} !important;
+        background-color: {hex_to_rgba(COLORS['primary_deep'], 0.08)} !important;
     }}
     [data-testid^="stBaseButton"]:disabled, [data-testid^="stBaseButton"]:disabled p {{
-        background-color: {COLORS['border']} !important;
+        background-color: transparent !important;
+        border-color: {COLORS['border']} !important;
         color: {COLORS['text_soft']} !important;
+    }}
+    /* The critical-CTA exception: solid gold fill, dark text, no border. */
+    [data-testid*="rimary" i] {{
+        background-color: {COLORS['primary']} !important;
+        border: none !important;
+    }}
+    [data-testid*="rimary" i] p, [data-testid*="rimary" i] span, [data-testid*="rimary" i] div {{
+        color: {COLORS['primary_d']} !important;
+    }}
+    [data-testid*="rimary" i]:hover {{
+        background-color: {COLORS['primary_deep']} !important;
     }}
 
     /* Expander headers — safety net so the label never fades to low-contrast */
@@ -257,34 +275,56 @@ st.markdown(f"""
     }}
 
 
-    /* Bordered containers -> dark elevated cards */
+    /* Bordered containers -> "glow-card" treatment from the DESIGN.md:
+       sharp corners, subtle top-edge gold hairline, backdrop blur. Per spec,
+       hovering does NOT lift the card — only the border and glow intensify. */
     div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: {COLORS['surface']};
+        background-color: {hex_to_rgba(COLORS['surface'], 0.85)};
+        backdrop-filter: blur(12px);
         border: 1px solid {COLORS['border']} !important;
-        border-radius: 18px !important;
+        border-radius: 4px !important;
         padding: 4px 6px;
+        position: relative;
+        transition: border-color 0.3s ease;
+    }}
+    div[data-testid="stVerticalBlockBorderWrapper"]::before {{
+        content: '';
+        position: absolute; top:0; left:0; right:0; height:1px;
+        background: linear-gradient(90deg, transparent, {hex_to_rgba(COLORS['primary_deep'], 0.15)}, transparent);
+        pointer-events: none;
+    }}
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
+        border-color: #3F3F42 !important;
+        box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+    }}
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover::before {{
+        background: linear-gradient(90deg, transparent, {hex_to_rgba(COLORS['primary_deep'], 0.35)}, transparent);
     }}
 
     .kpi-icon {{
         display:inline-flex; align-items:center; justify-content:center;
-        width:34px; height:34px; border-radius:10px; font-size:17px; margin-right:8px;
+        width:28px; height:28px; border-radius:50%; font-size:15px; margin-right:8px;
+        box-shadow: 0 0 0 1px {hex_to_rgba(COLORS['primary'], 0.15)};
     }}
-    .kpi-label {{ color:{COLORS['text_soft']}; font-size:0.82rem; font-weight:500; }}
+    .kpi-label {{
+        color:{COLORS['text_soft']}; font-size:0.72rem; font-weight:600;
+        text-transform: uppercase; letter-spacing: 0.15em; font-family: 'Inter', sans-serif;
+    }}
     .kpi-value {{
-        font-size:2.1rem; font-weight:600; margin: 4px 0 2px 0; letter-spacing:-0.5px;
-        font-family: 'IBM Plex Mono', monospace !important;
+        font-size:2.3rem; font-weight:400; margin: 4px 0 2px 0; letter-spacing:0.01em;
+        font-family: 'Bebas Neue', sans-serif !important;
     }}
     .pill {{
         display:inline-block; padding:3px 11px; border-radius:20px;
         font-size:0.76rem; font-weight:700;
     }}
-    .pill-up-bad {{ background-color: rgba(156,107,140,0.20); color:{COLORS['danger']} !important; }}
-    .pill-up-good {{ background-color: rgba(201,184,232,0.18); color:{COLORS['success']} !important; }}
-    .pill-down-good {{ background-color: rgba(201,184,232,0.18); color:{COLORS['success']} !important; }}
-    .pill-flat {{ background-color: rgba(156,147,172,0.15); color:{COLORS['text_soft']} !important; }}
-    .pill-ok {{ background-color: rgba(201,184,232,0.18); color:{COLORS['success']} !important; }}
-    .pill-warn {{ background-color: rgba(217,168,196,0.20); color:{COLORS['warning']} !important; }}
-    .pill-risk {{ background-color: rgba(156,107,140,0.22); color:{COLORS['danger']} !important; }}
+    .pill-up-bad {{ background-color: {hex_to_rgba(COLORS['danger'], 0.20)}; color:{COLORS['danger']} !important; }}
+    .pill-up-good {{ background-color: {hex_to_rgba(COLORS['success'], 0.18)}; color:{COLORS['success']} !important; }}
+    .pill-down-good {{ background-color: {hex_to_rgba(COLORS['success'], 0.18)}; color:{COLORS['success']} !important; }}
+    .pill-flat {{ background-color: {hex_to_rgba(COLORS['text_soft'], 0.15)}; color:{COLORS['text_soft']} !important; }}
+    .pill-ok {{ background-color: {hex_to_rgba(COLORS['success'], 0.18)}; color:{COLORS['success']} !important; }}
+    .pill-warn {{ background-color: {hex_to_rgba(COLORS['warning'], 0.20)}; color:{COLORS['warning']} !important; }}
+    .pill-risk {{ background-color: {hex_to_rgba(COLORS['danger'], 0.22)}; color:{COLORS['danger']} !important; }}
 
     .cat-row {{
         display:flex; justify-content:space-between; padding:7px 0;
@@ -306,18 +346,22 @@ st.markdown(f"""
         color:{COLORS['text_soft']} !important; margin-right:8px;
     }}
 
-    /* Pill-style tabs */
+    /* Underline-style tabs — matches the DESIGN.md's nav spec: minimalist
+       uppercase text links, active state = 2px gold underline, no fill. */
     .stTabs [data-baseweb="tab-list"] {{
-        background-color: {COLORS['surface']}; padding:6px; border-radius:14px;
-        border:1px solid {COLORS['border']}; gap:4px;
+        background-color: transparent; border-bottom: 1px solid {COLORS['border']};
+        gap: 24px; padding: 0 0 0 2px;
     }}
     .stTabs [data-baseweb="tab"] {{
-        color: {COLORS['text_soft']} !important; border-radius:10px !important;
-        padding: 8px 16px !important;
+        color: {COLORS['text_soft']} !important; border-radius: 0 !important;
+        padding: 8px 2px !important; text-transform: uppercase;
+        font-size: 0.78rem; letter-spacing: 0.06em; font-weight: 600;
+        background-color: transparent !important;
     }}
     .stTabs [aria-selected="true"] {{
-        background-color: {COLORS['primary']} !important;
-        color: #1A1424 !important; font-weight:700 !important;
+        background-color: transparent !important;
+        color: {COLORS['primary']} !important; font-weight:700 !important;
+        border-bottom: 2px solid {COLORS['primary']} !important;
     }}
     .stTabs [data-baseweb="tab-highlight"] {{ background-color: transparent !important; }}
     .stTabs [data-baseweb="tab-border"] {{ display:none !important; }}
@@ -914,7 +958,7 @@ def render_email_share(key_suffix, label="Email this report", section="performan
         st.markdown(f"**{label}**")
         recipient = st.text_input("Recipient email", placeholder="name@company.com", key=f"email_recipient_{key_suffix}")
         note = st.text_area("Add a note (optional)", key=f"email_note_{key_suffix}", height=68)
-        if st.button("Send report", key=f"send_email_btn_{key_suffix}", width='stretch'):
+        if st.button("Send report", key=f"send_email_btn_{key_suffix}", width='stretch', type="primary"):
             if not recipient or not re.match(EMAIL_PATTERN, recipient):
                 st.error("Enter a valid email address.")
             else:
@@ -929,10 +973,10 @@ def render_email_share(key_suffix, label="Email this report", section="performan
 
 st.sidebar.markdown(f"""
 <div style='background-color:{COLORS['surface']}; border:1px solid {COLORS['border']};
-     border-radius:14px; padding:16px; margin-bottom:14px;'>
-  <div style='font-size:1.5rem;'>🍞</div>
-  <div style='font-weight:800; font-size:1.15rem; margin-top:4px;'>Grandiose Bakery</div>
-  <div style='color:{COLORS['text_soft']}; font-size:0.8rem; margin-top:4px;'>
+     border-radius:4px; padding:16px; margin-bottom:14px;'>
+  <div style="font-family:'Bebas Neue',sans-serif; font-size:1.9rem; color:{COLORS['primary']};
+       text-transform:uppercase; letter-spacing:0.02em; line-height:1;">Grandiose</div>
+  <div style='color:{COLORS['text_soft']}; font-size:0.8rem; margin-top:8px;'>
     GIP III — Financial performance &amp; cost optimization<br>Bakery division only · catering excluded
   </div>
 </div>
@@ -940,7 +984,7 @@ st.sidebar.markdown(f"""
 
 st.sidebar.markdown(f"""
 <div style='background-color:{COLORS['surface']}; border:1px solid {COLORS['border']};
-     border-radius:14px; padding:14px; margin-bottom:14px;'>
+     border-radius:4px; padding:14px; margin-bottom:14px;'>
   <div style='color:{COLORS['text_soft']}; font-size:0.78rem; font-weight:700; letter-spacing:0.5px;'>PREPARED BY</div>
   <div style='margin-top:6px; font-size:0.9rem;'>Parineeta Jain</div>
   <div style='font-size:0.9rem;'>Rajveer Singh</div>
@@ -950,7 +994,7 @@ st.sidebar.markdown(f"""
 
 st.sidebar.markdown(f"""
 <div style='background-color:{hex_to_rgba(COLORS['primary'], 0.1)}; border:1px solid {hex_to_rgba(COLORS['primary'], 0.3)};
-     border-radius:14px; padding:14px; font-size:0.82rem; color:{COLORS['text']} !important;'>
+     border-radius:4px; padding:14px; font-size:0.82rem; color:{COLORS['text']} !important;'>
   ⚠️ All figures shown are illustrative benchmarks pending Grandiose's actual bakery data.
 </div>
 """, unsafe_allow_html=True)
@@ -958,7 +1002,7 @@ st.sidebar.markdown(f"""
 with st.sidebar.expander("📧  Email this report", expanded=False):
     recipient = st.text_input("Recipient email", placeholder="name@company.com", key="email_recipient")
     note = st.text_area("Add a note (optional)", key="email_note", height=70)
-    if st.button("Send report", key="send_email_btn", width='stretch'):
+    if st.button("Send report", key="send_email_btn", width='stretch', type="primary"):
         email_pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
         if not recipient or not re.match(email_pattern, recipient):
             st.error("Enter a valid email address.")
@@ -1145,11 +1189,19 @@ def portal_storage_mode():
 # HERO HEADER
 # ----------------------------------------------------------------------
 st.markdown(f"""
+<style>
+    .stApp {{
+        background-image: radial-gradient(1200px 420px at 15% -10%, {hex_to_rgba(COLORS['primary'], 0.08)} 0%, transparent 60%);
+        background-attachment: fixed;
+    }}
+    .gold-divider {{ height: 1px; width: 40px; background-color: {COLORS['primary_deep']}; margin-bottom: 12px; }}
+</style>
 <div style='margin-bottom:6px;'>
   <span class='hero-badge'>🇦🇪 UAE · Grandiose</span>
   <span class='hero-badge'>Bakery division</span>
   <span class='hero-badge'>GIP III</span>
 </div>
+<div class='gold-divider'></div>
 """, unsafe_allow_html=True)
 st.markdown("## Financial Performance Dashboard")
 
@@ -1158,7 +1210,7 @@ st.markdown(f"""
     div[data-baseweb="select"] > div {{
         background-color: {COLORS['surface']} !important;
         border: 1px solid {COLORS['border']} !important;
-        border-radius: 12px !important;
+        border-radius: 4px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -1630,7 +1682,7 @@ elif section == "👤  Employee portal":
                          "generate ~AED 1,000/day. Leave at 0 if not tracked yet for this shift."
                 )
                 notes = st.text_area("Notes (optional)", placeholder="Any incidents, equipment issues, etc.")
-                submitted = st.form_submit_button("Submit shift log", width='stretch')
+                submitted = st.form_submit_button("Submit shift log", width='stretch', type="primary")
                 if submitted:
                     total_output = units + units_wasted
                     wastage_pct = round((units_wasted / total_output) * 100, 1) if total_output > 0 else 0.0
@@ -1974,7 +2026,7 @@ elif section == "📥  Data processor":
     if uploaded_files:
         st.caption(f"{len(uploaded_files)} file(s) ready: " + ", ".join(f.name for f in uploaded_files))
 
-    process_clicked = st.button("Process files", width='stretch', disabled=not uploaded_files)
+    process_clicked = st.button("Process files", width='stretch', disabled=not uploaded_files, type="primary")
 
     if process_clicked and uploaded_files:
         with st.spinner("Reading files and asking the AI to interpret and evaluate the data..."):
@@ -2025,7 +2077,7 @@ elif section == "📥  Data processor":
             "Download processed Excel report", data=excel_bytes,
             file_name=f"Grandiose_Bakery_Processed_Data_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width='stretch',
+            width='stretch', type="primary",
         )
         render_email_share("smart_upload", "Email this processed report", section="smart_upload",
                             context={"result": result, "source_files": st.session_state.get("smart_upload_files", [])})
