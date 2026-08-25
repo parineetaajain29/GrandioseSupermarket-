@@ -39,7 +39,10 @@ st.set_page_config(
     page_title="Grandiose Bakery Dashboard",
     page_icon="🍞",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # Collapsed by default: navigation lives in the top bar, so the canvas
+    # runs full-width like the design. The sidebar is still there for the
+    # email-report tool and project credits.
+    initial_sidebar_state="collapsed",
 )
 
 # ----------------------------------------------------------------------
@@ -50,6 +53,7 @@ st.set_page_config(
 COLORS = {
     # Exact tokens from Stitch's "Grandiose Cinematic Dashboard" DESIGN.md
     "bg":        "#0A0A0B",   # Level 0 background
+    "surface_lowest": "#0E0E0F",  # below-background band — footer, app chrome
     "surface":   "#161618",   # Level 1 card surface
     "surface2":  "#1C1B1C",   # sidebar / secondary surface (surface-container-low)
     "border":    "#2A2A2C",   # card border
@@ -73,10 +77,17 @@ def hex_to_rgba(hex_color, alpha):
     return f"rgba({r},{g},{b},{alpha})"
 
 
+# Web fonts MUST be pulled in with an @import inside a <style> block, not a
+# <link> tag. st.markdown injects HTML via innerHTML, and browsers treat a
+# <link> inserted that way as inert — it lands in the DOM but is never
+# fetched, so every heading silently fell back to a system font. A <style>
+# element inserted the same way *is* parsed, and its @import does get
+# fetched. @import has to be the first rule in its own stylesheet, which is
+# why this sits in a block of its own.
 st.markdown("""
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap');
+</style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
@@ -169,14 +180,25 @@ st.markdown(f"""
         font-family: 'Inter', sans-serif !important;
     }}
     div[data-testid="stCaptionContainer"], .stApp small {{ color: {COLORS['text_soft']} !important; }}
-    h1, h2 {{
+    /* Headings are Bebas Neue — but Streamlit renders every heading as
+       <h1><span>text</span>…</h1>, and the broad `.stApp span` Inter rule
+       above matches that inner span directly, which outranks a bare `h1`
+       rule and silently forced every heading in the app back to Inter.
+       Targeting the span too (and scoping with .stApp so these selectors
+       outweigh `.stApp span`) is what actually makes Bebas render. */
+    .stApp h1, .stApp h2,
+    .stApp h1 span, .stApp h2 span {{
         color: {COLORS['text']} !important; font-family: 'Bebas Neue', sans-serif !important;
         font-weight: 400 !important; letter-spacing: -0.01em; text-transform: uppercase;
     }}
-    h3, h4, h5 {{
+    .stApp h3, .stApp h4, .stApp h5,
+    .stApp h3 span, .stApp h4 span, .stApp h5 span {{
         color: {COLORS['text']} !important; font-family: 'Bebas Neue', sans-serif !important;
         font-weight: 400 !important; letter-spacing: 0.04em; text-transform: uppercase;
     }}
+    /* The heading anchor-link affordance holds an SVG, not text — keep it
+       out of the heading type treatment. */
+    .stApp [data-testid="stHeaderActionElements"] {{ text-transform: none; }}
     section[data-testid="stSidebar"] * {{ color: {COLORS['text']} !important; font-family: 'Inter', sans-serif !important; }}
 
     /* Restore Streamlit's icon-ligature font wherever our broad font-family
@@ -1186,48 +1208,230 @@ def portal_storage_mode():
 
 
 # ----------------------------------------------------------------------
-# HERO HEADER
+# APP CHROME — top navigation bar, page header, footer
+#
+# Navigation is a single horizontal bar (logo | section links | icons),
+# matching the design system's nav spec: uppercase label-sm links, muted
+# by default, gold with a 2px gold underline when active. Each entry in
+# NAV_ITEMS is (key, label); `key` is what the section routing below
+# compares against, so labels can be reworded without touching routing.
 # ----------------------------------------------------------------------
+NAV_ITEMS = [
+    ("performance_tracker", "Performance Tracker"),
+    ("scenario_resilience", "Scenario & Resilience"),
+    ("employee_portal",     "Employee Portal"),
+    ("company_profile",     "Company Profile"),
+    ("data_processor",      "Data Processor"),
+]
+
+# Per-section page header: (title, subtitle). Rendered directly under the
+# nav bar so every section opens with the same masthead treatment.
+PAGE_META = {
+    "performance_tracker": ("Financial Performance Dashboard",
+                            "Where the bakery division stands today."),
+    "scenario_resilience": ("Scenario & Resilience",
+                            "What happens if — stress-tests the same cost and margin outputs "
+                            "under new assumptions."),
+    "employee_portal":     ("Employee Portal",
+                            "Employee self-service performance tracking — bakery division."),
+    "company_profile":     ("Company Profile",
+                            "Everything collected from the Grandiose team so far — from the "
+                            "27 Jul personal meeting with the GM."),
+    "data_processor":      ("Data Processor",
+                            "Drop in rough Excel, PDF, or Word files — get back a cleaned, "
+                            "evaluated Excel report."),
+}
+
+FOOTER_LINKS = ["Privacy Policy", "Terms of Service", "Financial Disclosure", "Contact Support"]
+
+NAV_ICONS_HTML = (
+    "<div class='gd-nav-icons'>"
+    "<svg viewBox='0 0 24 24' role='img' aria-label='Notifications'>"
+    "<path d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5"
+    "s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/></svg>"
+    "<svg viewBox='0 0 24 24' role='img' aria-label='Account'>"
+    "<path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3"
+    "-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08"
+    "-1.29 1.94-3.5 3.22-6 3.22z'/></svg>"
+    "</div>"
+)
+
 st.markdown(f"""
 <style>
     .stApp {{
         background-image: radial-gradient(1200px 420px at 15% -10%, {hex_to_rgba(COLORS['primary'], 0.08)} 0%, transparent 60%);
         background-attachment: fixed;
     }}
-    .gold-divider {{ height: 1px; width: 40px; background-color: {COLORS['primary_deep']}; margin-bottom: 12px; }}
-</style>
-<div style='margin-bottom:6px;'>
-  <span class='hero-badge'>🇦🇪 UAE · Grandiose</span>
-  <span class='hero-badge'>Bakery division</span>
-  <span class='hero-badge'>GIP III</span>
-</div>
-<div class='gold-divider'></div>
-""", unsafe_allow_html=True)
-st.markdown("## Financial Performance Dashboard")
+    .gold-divider {{ height: 2px; width: 32px; background-color: {COLORS['primary_deep']}; margin-bottom: 14px; }}
 
-st.markdown(f"""
-<style>
-    div[data-baseweb="select"] > div {{
-        background-color: {COLORS['surface']} !important;
-        border: 1px solid {COLORS['border']} !important;
-        border-radius: 4px !important;
+    /* Pull the canvas up under the nav bar and give the page real gutters,
+       so the bar reads as full-bleed app chrome rather than page content. */
+    .stMainBlockContainer {{ padding-top: 2.2rem !important; max-width: 1350px; }}
+
+    /* ---------------- TOP NAVIGATION BAR ---------------- */
+    .st-key-gd_topbar {{
+        position: sticky; top: 0; z-index: 999;
+        background-color: {COLORS['bg']};
+        border-bottom: 1px solid {COLORS['border']};
+        margin-bottom: 34px;
+        padding: 4px 4px 0 4px;
+    }}
+    /* Nav links: strip the global ghost-button chrome down to a text link. */
+    .st-key-gd_topbar [data-testid^="stBaseButton"] {{
+        background-color: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        border-radius: 0 !important;
+        padding: 4px 0 10px 0 !important;
+        min-height: 0 !important;
+        transition: border-color 0.25s ease, color 0.25s ease;
+    }}
+    .st-key-gd_topbar [data-testid^="stBaseButton"] p {{
+        color: {COLORS['text_soft']} !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.15em !important;
+        text-transform: uppercase !important;
+        white-space: nowrap;
+    }}
+    .st-key-gd_topbar [data-testid^="stBaseButton"]:hover {{
+        background-color: transparent !important;
+        border-bottom-color: {hex_to_rgba(COLORS['primary'], 0.45)} !important;
+    }}
+    .st-key-gd_topbar [data-testid^="stBaseButton"]:hover p {{ color: {COLORS['primary']} !important; }}
+    /* Active link — outranks the global solid-gold primary-button rule
+       because this selector adds the container class. */
+    .st-key-gd_topbar [data-testid*="rimary" i] {{
+        background-color: transparent !important;
+        border-bottom: 2px solid {COLORS['primary']} !important;
+    }}
+    .st-key-gd_topbar [data-testid*="rimary" i]:hover {{ background-color: transparent !important; }}
+    .st-key-gd_topbar [data-testid*="rimary" i] p {{
+        color: {COLORS['primary']} !important; font-weight: 700 !important;
+    }}
+
+    .gd-logo {{
+        font-family: 'Bebas Neue', sans-serif !important;
+        font-size: 1.95rem; line-height: 1.15; color: {COLORS['primary']};
+        text-transform: uppercase; letter-spacing: 0.14em;
+        padding: 0 18px 6px 0; white-space: nowrap;
+    }}
+    /* Status icons — inline SVG rather than an icon font, so they can never
+       flash their ligature text ("notifications") while a font loads. */
+    .gd-nav-icons {{
+        display: flex; justify-content: flex-end; align-items: center;
+        gap: 16px; padding-bottom: 12px;
+    }}
+    .gd-nav-icons svg {{
+        width: 18px; height: 18px; flex: none;
+        fill: {COLORS['text_soft']}; transition: fill 0.2s ease;
+    }}
+    .gd-nav-icons svg:hover {{ fill: {COLORS['primary']}; }}
+
+    /* ---------------- PAGE HEADER ---------------- */
+    .stApp .gd-page-title, .stApp .gd-page-title span {{
+        font-family: 'Bebas Neue', sans-serif !important;
+        font-size: 3.1rem; line-height: 1.02; color: {COLORS['text']} !important;
+        text-transform: uppercase; letter-spacing: 0.01em; margin: 0;
+    }}
+    .gd-page-sub {{
+        color: {COLORS['text_soft']}; font-size: 0.88rem; margin-top: 8px;
+    }}
+    .gd-page-header {{
+        border-bottom: 1px solid {COLORS['border']};
+        padding-bottom: 20px; margin-bottom: 34px;
+    }}
+
+    /* ---------------- FOOTER ---------------- */
+    .gd-footer {{
+        border-top: 1px solid {COLORS['border']};
+        background-color: {COLORS['surface_lowest']};
+        margin-top: 56px; padding: 26px 28px;
+        display: flex; flex-wrap: wrap; gap: 14px;
+        justify-content: space-between; align-items: center;
+    }}
+    .gd-footer-copy {{
+        color: {COLORS['text_soft']} !important;
+        font-size: 0.68rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.1em;
+    }}
+    .gd-footer-links {{ display: flex; flex-wrap: wrap; gap: 22px; }}
+    .gd-footer-links span {{
+        color: {COLORS['text_soft']} !important;
+        font-size: 0.68rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.1em;
+        cursor: default; transition: color 0.2s ease;
+    }}
+    .gd-footer-links span:hover {{ color: {COLORS['primary']} !important; }}
+    .gd-footer-note {{
+        color: {COLORS['text_soft']} !important;
+        font-size: 0.72rem; line-height: 1.6;
+        padding: 16px 28px 0 28px; opacity: 0.75;
     }}
 </style>
 """, unsafe_allow_html=True)
 
-section = st.selectbox(
-    "Dashboard section",
-    ["📊  Performance tracker", "🧭  Scenario & resilience", "👤  Employee portal", "📋  Company profile",
-     "📥  Data processor"],
-    label_visibility="collapsed",
-)
+
+def render_top_nav():
+    """Full-width top bar: logo, section links, status icons.
+
+    Returns the key of the active section. Selection is held in
+    st.session_state so it survives the reruns that widgets trigger.
+    """
+    st.session_state.setdefault("active_section", NAV_ITEMS[0][0])
+
+    with st.container(key="gd_topbar"):
+        cols = st.columns([2.9, 1.95, 2.1, 1.62, 1.62, 1.58, 0.85],
+                          vertical_alignment="bottom")
+        cols[0].markdown("<div class='gd-logo'>Grandiose</div>", unsafe_allow_html=True)
+
+        for col, (key, label) in zip(cols[1:], NAV_ITEMS):
+            is_active = st.session_state["active_section"] == key
+            if col.button(label, key=f"nav_{key}", width='stretch',
+                          type="primary" if is_active else "secondary"):
+                st.session_state["active_section"] = key
+                st.rerun()
+
+        cols[-1].markdown(NAV_ICONS_HTML, unsafe_allow_html=True)
+
+    return st.session_state["active_section"]
+
+
+def render_page_header(section_key):
+    title, subtitle = PAGE_META[section_key]
+    st.markdown(
+        f"<div class='gd-page-header'>"
+        f"<div class='gold-divider'></div>"
+        f"<h1 class='gd-page-title'>{title}</h1>"
+        f"<div class='gd-page-sub'>{subtitle}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_footer():
+    links = "".join(f"<span>{name}</span>" for name in FOOTER_LINKS)
+    st.markdown(
+        f"<div class='gd-footer'>"
+        f"<span class='gd-footer-copy'>© 2024 Grandiose. Institutional rigor. Culinary artistry.</span>"
+        f"<div class='gd-footer-links'>{links}</div>"
+        f"</div>"
+        f"<div class='gd-footer-note'>"
+        f"Financial performance and cost optimization for Grandiose Bakery operations · GIP III · "
+        f"Bakery division only, catering excluded · Figures shown are illustrative benchmarks "
+        f"pending Grandiose-provided actuals."
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+section = render_top_nav()
+render_page_header(section)
 
 # ========================================================================
 # SECTION A — PERFORMANCE TRACKER
 # ========================================================================
-if section == "📊  Performance tracker":
-    st.caption("Where the bakery division stands today")
-
+if section == "performance_tracker":
     kpis = [
         ("🍞", "Food cost %", f"{baseline['food_cost_pct']}%", "↑ 1.2pt vs target", "pill-up-bad",
          food_cost_trend, COLORS["primary"]),
@@ -1356,9 +1560,7 @@ if section == "📊  Performance tracker":
 # ========================================================================
 # SECTION B — SCENARIO & RESILIENCE
 # ========================================================================
-elif section == "🧭  Scenario & resilience":
-    st.caption("What happens if — stress-tests the same cost and margin outputs under new assumptions")
-
+elif section == "scenario_resilience":
     mod1, mod2, mod3, mod4 = st.tabs([
         "1 · Inflation sensitivity", "2 · Supply disruption risk",
         "3 · Pandemic preparedness", "4 · Supplier alternatives",
@@ -1605,9 +1807,7 @@ elif section == "🧭  Scenario & resilience":
 # ========================================================================
 # SECTION C — EMPLOYEE PORTAL
 # ========================================================================
-elif section == "👤  Employee portal":
-    st.caption("Employee self-service performance tracking — bakery division")
-
+elif section == "employee_portal":
     storage_mode = portal_storage_mode()
     badge_cls = "pill-ok" if "Supabase" in storage_mode else "pill-warn"
     st.markdown(f"<span class='pill {badge_cls}'>💾 Storage: {storage_mode}</span>", unsafe_allow_html=True)
@@ -2007,9 +2207,7 @@ elif section == "👤  Employee portal":
 # ========================================================================
 # SECTION D — COMPANY PROFILE
 # ========================================================================
-elif section == "📋  Company profile":
-    st.caption("Everything collected from the Grandiose team so far — from the 27 Jul personal meeting with the GM")
-
+elif section == "company_profile":
     COMPANY_INFO = [
         ("🏭", "Production capacity & growth", [
             "Flour Country Bakery is currently running at only 30-35% utilization — roughly 65% headroom still available.",
@@ -2089,9 +2287,7 @@ elif section == "📋  Company profile":
 # ========================================================================
 # SECTION E — DATA PROCESSOR (AI-powered rough-data cleanup)
 # ========================================================================
-elif section == "📥  Data processor":
-    st.caption("Drop in rough Excel, PDF, or Word files — get back a cleaned, evaluated Excel report")
-
+elif section == "data_processor":
     ai_client = get_anthropic_client()
     badge_cls = "pill-ok" if ai_client is not None else "pill-warn"
     ai_status = "AI processing: connected" if ai_client is not None else "AI processing: not configured"
@@ -2176,7 +2372,4 @@ elif section == "📥  Data processor":
                "beyond the current session. Numbers are AI-interpreted from whatever was uploaded — "
                "always sanity-check before acting on them.")
 
-st.markdown("---")
-st.caption("Financial Performance and Cost Optimization for Grandiose Bakery Operations · GIP III · "
-           "Bakery division only, catering excluded · Figures shown are illustrative benchmarks pending "
-           "Grandiose-provided actuals.")
+render_footer()
