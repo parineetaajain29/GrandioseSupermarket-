@@ -300,28 +300,41 @@ st.markdown(f"""
 
 
     /* Bordered containers -> "glow-card" treatment from the DESIGN.md:
-       sharp corners, subtle top-edge gold hairline, backdrop blur. Per spec,
-       hovering does NOT lift the card — only the border and glow intensify. */
-    div[data-testid="stVerticalBlockBorderWrapper"] {{
+       tiered surface, a top-edge gold hairline, backdrop blur. Per spec,
+       hovering does NOT lift the card — only the border and glow intensify.
+
+       Streamlit renamed this container's test-id, so the original selector
+       matched nothing and every card in the app quietly fell back to the
+       plain default border with no surface tint, hairline or blur. Both the
+       old and current structures are listed so this survives a version
+       change either way. The :not([class*="st-key-"]) guard keeps
+       purely-structural keyed containers (the top bar, the panel row) from
+       being painted as cards — only real st.container(border=True) cards
+       are, since those carry no key. */
+    div[data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"]:not([class*="st-key-"]) {{
         background-color: {hex_to_rgba(COLORS['surface'], 0.85)};
         backdrop-filter: blur(12px);
         border: 1px solid {COLORS['border']} !important;
         border-radius: 4px !important;
-        padding: 4px 6px;
         position: relative;
-        transition: border-color 0.3s ease;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
     }}
-    div[data-testid="stVerticalBlockBorderWrapper"]::before {{
+    div[data-testid="stVerticalBlockBorderWrapper"]::before,
+    [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"]:not([class*="st-key-"])::before {{
         content: '';
         position: absolute; top:0; left:0; right:0; height:1px;
         background: linear-gradient(90deg, transparent, {hex_to_rgba(COLORS['primary_deep'], 0.15)}, transparent);
         pointer-events: none;
+        border-radius: 4px 4px 0 0;
     }}
-    div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover,
+    [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"]:not([class*="st-key-"]):hover {{
         border-color: #3F3F42 !important;
         box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
     }}
-    div[data-testid="stVerticalBlockBorderWrapper"]:hover::before {{
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover::before,
+    [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"]:not([class*="st-key-"]):hover::before {{
         background: linear-gradient(90deg, transparent, {hex_to_rgba(COLORS['primary_deep'], 0.35)}, transparent);
     }}
 
@@ -1508,7 +1521,7 @@ SKU_DIVISION_COLORS = {
 }
 
 BUBBLE_W, BUBBLE_H = 1200, 430
-BUBBLE_R_MIN, BUBBLE_R_MAX = 9.0, 44.0
+BUBBLE_R_MIN, BUBBLE_R_MAX = 6.5, 36.0
 
 
 @st.cache_data(show_spinner=False)
@@ -2576,22 +2589,26 @@ elif section == "sku_performance":
     # --- KPI strip ---
     with st.container(border=True):
         kpi_cols = st.columns(5, vertical_alignment="top")
-        # Figures share one size; the two name KPIs step down so a long
-        # product name wraps to two lines without pushing the row around.
-        # The cell has a fixed min-height so all five labels stay on one line.
-        headline = [
-            ("Total sales",  sku_data.format_aed(k["total_sales"]),   "2.1rem", COLORS["text"]),
-            ("Units sold",   sku_data.format_units(k["total_units"]), "2.1rem", COLORS["text"]),
-            ("Active SKUs",  f"{k['active_skus']}",                   "2.1rem", COLORS["text"]),
-            ("Top division", k["top_division"],                       "1.4rem", COLORS["primary"]),
-            ("Top product",  k["top_product"],                        "1.4rem", COLORS["text"]),
-        ]
-        for col, (label, value, size, colour) in zip(kpi_cols, headline):
+        # Cards come from sku_data as label / value / sub-line / trend, so
+        # the page only decides sizing and colour. Figures share one size;
+        # the two name KPIs step down so a long product name wraps to two
+        # lines without pushing the row around, and the cell has a fixed
+        # min-height so all five labels stay on one line.
+        for col, card in zip(kpi_cols, sku_data.kpi_cards(products)):
+            size = "1.4rem" if card["trend"] is None else "2.1rem"
+            colour = COLORS["primary"] if card.get("accent") else COLORS["text"]
+            sub_colour = {
+                "up": COLORS["primary"],
+                "down": COLORS["danger"],
+            }.get(card["trend"], COLORS["text_soft"])
+            arrow = {"up": "↑ ", "down": "↓ "}.get(card["trend"], "")
             col.markdown(
-                f"<div style='padding:14px 14px 10px 14px; min-height:104px;'>"
-                f"<div class='kpi-label'>{label}</div>"
+                f"<div style='padding:14px 14px 10px 14px; min-height:126px;'>"
+                f"<div class='kpi-label'>{card['label']}</div>"
                 f"<div class='kpi-value' style='font-size:{size}; color:{colour}; "
-                f"line-height:1.15;'>{value}</div>"
+                f"line-height:1.15;'>{card['value']}</div>"
+                f"<div style='color:{sub_colour}; font-size:0.72rem; font-weight:600; "
+                f"margin-top:6px;'>{arrow}{card['sub']}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
