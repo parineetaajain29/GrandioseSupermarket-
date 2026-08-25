@@ -348,12 +348,39 @@ st.markdown(f"""
     .pill-warn {{ background-color: {hex_to_rgba(COLORS['warning'], 0.20)}; color:{COLORS['warning']} !important; }}
     .pill-risk {{ background-color: {hex_to_rgba(COLORS['danger'], 0.22)}; color:{COLORS['danger']} !important; }}
 
-    .cat-row {{
-        display:flex; justify-content:space-between; padding:7px 0;
-        border-bottom:1px solid {COLORS['border']}; font-size:0.9rem;
+    /* Category panels. A quarter-width column is too narrow for a
+       label-left/value-right row — long labels and values collide and wrap
+       mid-string ("AED / 42,000/mo"). Stacking the label over the value
+       gives each the full card width, so nothing breaks awkwardly, and it
+       reuses the label-over-value pattern the rest of the system already
+       uses for figures. */
+    /* Stretch every card to the tallest in the row so the bottoms line up.
+       The height has to be carried all the way down the column -> wrapper ->
+       block chain, or the innermost card still collapses to its content.
+       Both the old and current Streamlit container test-ids are listed so
+       this keeps working across versions. */
+    .st-key-gd_catpanels [data-testid="stColumn"] {{ display: flex; }}
+    .st-key-gd_catpanels [data-testid="stColumn"] > div,
+    .st-key-gd_catpanels [data-testid="stLayoutWrapper"],
+    .st-key-gd_catpanels [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"],
+    .st-key-gd_catpanels div[data-testid="stVerticalBlockBorderWrapper"] {{
+        width: 100%; height: 100%;
     }}
-    .cat-row span:first-child {{ color:{COLORS['text_soft']}; }}
-    .cat-row span:last-child {{ font-weight:600; }}
+    .cat-panel {{ padding: 14px 16px 6px 16px; }}
+    .cat-panel h4 {{ margin: 0 0 12px 0 !important; font-size: 0.95rem !important; }}
+    .cat-metric {{ padding: 9px 0; border-bottom: 1px solid {COLORS['border']}; }}
+    .cat-metric:last-child {{ border-bottom: none; }}
+    .cat-metric-label {{
+        color: {COLORS['text_soft']} !important;
+        font-size: 0.64rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.13em;
+        line-height: 1.35;
+    }}
+    .cat-metric-value {{
+        color: {COLORS['text']} !important;
+        font-size: 0.98rem; font-weight: 600; line-height: 1.25;
+        margin-top: 4px;
+    }}
 
     .info-row {{
         padding:8px 0; border-bottom:1px solid {COLORS['border']};
@@ -438,22 +465,22 @@ baseline = {
 category_panels = {
     "🥖 Production": {
         "Batch efficiency": "88%",
-        "Labor cost / unit": "AED 1.10",
-        "Std vs actual cost": "+6.9%",
+        "Labour cost per unit": "AED 1.10",
+        "Actual vs standard cost": "+6.9%",
     },
     "🚚 Procurement": {
         "Purchase price variance": "+3.2%",
-        "Supplier lead time": "2.4 days",
+        "Average supplier lead time": "2.4 days",
         "Top-3 flour supplier share": "76%",
     },
     "📦 Warehouse & inventory": {
-        "Inventory turnover": "14.2x/yr",
-        "Expired/damaged stock": "AED 8,400",
-        "Slow-moving SKUs": "6",
+        "Inventory turnover": "14.2x per year",
+        "Expired / damaged stock": "AED 8,400",
+        "Slow-moving SKUs": "6 lines",
     },
     "💰 Cost control & margin": {
-        "Margin leakage (est.)": "AED 42,000/mo",
-        "Packaging cost impact": "2.1% of sales",
+        "Estimated margin leakage": "AED 42,000 / month",
+        "Packaging cost": "2.1% of sales",
         "Overhead allocation": "9.4% of sales",
     },
 }
@@ -1573,13 +1600,20 @@ if section == "performance_tracker":
     render_email_share("trend_chart", "Email this Performance Tracker report", section="performance_tracker")
 
     st.markdown("#### Category panels")
-    cols2 = st.columns(4)
-    for col, (name, metrics) in zip(cols2, category_panels.items()):
-        with col:
-            with st.container(border=True):
-                rows = "".join([f"<div class='cat-row'><span>{k}</span><span>{v}</span></div>" for k, v in metrics.items()])
-                st.markdown(f"<div style='padding:12px 16px;'><h4 style='margin:0 0 8px 0; font-size:1rem;'>{name}</h4>{rows}</div>",
-                            unsafe_allow_html=True)
+    with st.container(key="gd_catpanels"):
+        cols2 = st.columns(4)
+        for col, (name, metrics) in zip(cols2, category_panels.items()):
+            with col:
+                with st.container(border=True):
+                    rows = "".join(
+                        f"<div class='cat-metric'>"
+                        f"<div class='cat-metric-label'>{k}</div>"
+                        f"<div class='cat-metric-value'>{v}</div>"
+                        f"</div>"
+                        for k, v in metrics.items()
+                    )
+                    st.markdown(f"<div class='cat-panel'><h4>{name}</h4>{rows}</div>",
+                                unsafe_allow_html=True)
     render_email_share("category_panels", "Email this Performance Tracker report", section="performance_tracker")
 
 # ========================================================================
