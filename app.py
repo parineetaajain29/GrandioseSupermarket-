@@ -27,10 +27,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import json
+import math
 from anthropic import Anthropic
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from supabase import create_client
+import sku_data
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -1248,6 +1250,7 @@ NAV_ITEMS = [
     ("scenario_resilience", "Scenario & Resilience"),
     ("employee_portal",     "Employee Portal"),
     ("company_profile",     "Company Profile"),
+    ("sku_performance",     "SKU Performance"),
     ("data_processor",      "Data Processor"),
 ]
 
@@ -1264,6 +1267,8 @@ PAGE_META = {
     "company_profile":     ("Company Profile",
                             "Everything collected from the Grandiose team so far — from the "
                             "27 Jul personal meeting with the GM."),
+    "sku_performance":     ("Bakery Product Performance",
+                            "Product and SKU performance across the six bakery divisions."),
     "data_processor":      ("Data Processor",
                             "Drop in rough Excel, PDF, or Word files — get back a cleaned, "
                             "evaluated Excel report."),
@@ -1336,9 +1341,9 @@ st.markdown(f"""
     }}
     .st-key-gd_topbar [data-testid^="stBaseButton"] p {{
         color: {COLORS['text_soft']} !important;
-        font-size: 0.68rem !important;
+        font-size: 0.63rem !important;
         font-weight: 600 !important;
-        letter-spacing: 0.15em !important;
+        letter-spacing: 0.10em !important;
         text-transform: uppercase !important;
         white-space: nowrap;
     }}
@@ -1435,9 +1440,12 @@ def render_top_nav():
     """
     st.session_state.setdefault("active_section", NAV_ITEMS[0][0])
 
+    # Link columns are sized from their label length so adding or renaming a
+    # section rebalances the bar automatically instead of overflowing it.
+    link_widths = [0.30 + 0.088 * len(label) for _, label in NAV_ITEMS]
+
     with st.container(key="gd_topbar"):
-        cols = st.columns([2.9, 1.95, 2.1, 1.62, 1.62, 1.58, 0.85],
-                          vertical_alignment="center")
+        cols = st.columns([2.1, *link_widths, 0.7], vertical_alignment="center")
         cols[0].markdown("<div class='gd-logo'>Grandiose</div>", unsafe_allow_html=True)
 
         for col, (key, label) in zip(cols[1:], NAV_ITEMS):
@@ -1478,6 +1486,215 @@ def render_footer():
         f"</div>",
         unsafe_allow_html=True,
     )
+
+
+# ----------------------------------------------------------------------
+# BAKERY PRODUCT PERFORMANCE — helpers
+#
+# The page renders one bubble per SKU, grouped into a cluster per division.
+# Bubble AREA is proportional to units sold (so radius scales with the
+# square root), which is what makes relative volume readable at a glance.
+# ----------------------------------------------------------------------
+
+# One gold ramp rather than six arbitrary hues — divisions stay separable
+# without introducing colours the design system doesn't have.
+SKU_DIVISION_COLORS = {
+    "Baklava":             "#F2CA50",
+    "French Bakery":       "#D4AF37",
+    "Arabic Bread":        "#B8942C",
+    "Viennoiserie":        "#9C7A22",
+    "Tahina":              "#7E621B",
+    "Seasonal Collection": "#FFE088",
+}
+
+BUBBLE_W, BUBBLE_H = 1200, 430
+BUBBLE_R_MIN, BUBBLE_R_MAX = 9.0, 44.0
+
+
+@st.cache_data(show_spinner=False)
+def load_sku_products():
+    return sku_data.load_products()
+
+
+def _bubble_radius(units, max_units):
+    """Radius for a bubble, scaled so AREA tracks units sold."""
+    if max_units <= 0:
+        return BUBBLE_R_MIN
+    return BUBBLE_R_MIN + (BUBBLE_R_MAX - BUBBLE_R_MIN) * math.sqrt(units / max_units)
+
+
+@st.cache_data(show_spinner=False)
+def bubble_layout(items, width=BUBBLE_W, height=BUBBLE_H, pad=4.0):
+    """Pack bubbles into one organic cluster per division.
+
+    `items` is a tuple of (cluster_index, radius) — a tuple so the result
+    caches, which also keeps positions stable across reruns instead of
+    reshuffling every time the page redraws.
+
+    Seeds each cluster on a phyllotaxis spiral (largest bubbles innermost,
+    which reads as organic rather than gridded), then relaxes overlaps while
+    a weak spring holds each bubble to its own cluster so the groups stay
+    visually distinct.
+    """
+    if not items:
+        return []
+
+    members = {}
+    for i, (cluster, _r) in enumerate(items):
+        members.setdefault(cluster, []).append(i)
+
+    clusters = sorted(members)
+    margin = BUBBLE_R_MAX + 16
+    usable = max(width - 2 * margin, 1)
+    step = usable / len(clusters)
+    centres = {c: (margin + (k + 0.5) * step, height / 2.0)
+               for k, c in enumerate(clusters)}
+
+    golden = math.pi * (3.0 - math.sqrt(5.0))
+    pos = [[0.0, 0.0] for _ in items]
+
+    for cluster in clusters:
+        idxs = sorted(members[cluster], key=lambda i: -items[i][1])
+        cx, cy = centres[cluster]
+        area = sum(math.pi * items[i][1] ** 2 for i in idxs)
+        # Capped against the per-cluster slot so neighbouring divisions keep
+        # a visible gap instead of merging into one mass.
+        spread = min(math.sqrt(area / math.pi) * 1.15, step * 0.42)
+        for j, i in enumerate(idxs):
+            angle = j * golden
+            radius = spread * math.sqrt((j + 0.35) / len(idxs))
+            pos[i] = [cx + radius * math.cos(angle), cy + radius * math.sin(angle)]
+
+    n = len(items)
+    for _ in range(160):
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx = pos[j][0] - pos[i][0]
+                dy = pos[j][1] - pos[i][1]
+                dist = math.hypot(dx, dy)
+                min_dist = items[i][1] + items[j][1] + pad
+                if dist < min_dist:
+                    if dist < 1e-6:
+                        dx, dy, dist = 0.7, 0.7, 1.0
+                    shift = (min_dist - dist) / dist * 0.5
+                    ox, oy = dx * shift, dy * shift
+                    pos[i][0] -= ox; pos[i][1] -= oy
+                    pos[j][0] += ox; pos[j][1] += oy
+
+        for i, (cluster, r) in enumerate(items):
+            cx, cy = centres[cluster]
+            pos[i][0] += (cx - pos[i][0]) * 0.022
+            pos[i][1] += (cy - pos[i][1]) * 0.030
+            pos[i][0] = min(max(pos[i][0], r + 2), width - r - 2)
+            pos[i][1] = min(max(pos[i][1], r + 2), height - r - 2)
+
+    return [(round(x, 2), round(y, 2)) for x, y in pos]
+
+
+def build_bubble_figure(products, selected_sku=None):
+    """Bubble clusters, one Scatter trace per division."""
+    max_units = max((p["units"] for p in products), default=1)
+    divisions = [d for d in sku_data.DIVISIONS
+                 if any(p["division"] == d for p in products)]
+    div_index = {d: i for i, d in enumerate(divisions)}
+
+    ordered = sorted(products, key=lambda p: (div_index[p["division"]], -p["units"]))
+    radii = [_bubble_radius(p["units"], max_units) for p in ordered]
+    coords = bubble_layout(tuple((div_index[p["division"]], r)
+                                 for p, r in zip(ordered, radii)))
+
+    fig = go.Figure()
+    for division in divisions:
+        rows = [(p, r, xy) for p, r, xy in zip(ordered, radii, coords)
+                if p["division"] == division]
+        if not rows:
+            continue
+        is_seasonal = division == sku_data.SEASONAL_DIVISION
+
+        custom = [[
+            p["product"], p["division"], f"{p['units']:,}",
+            sku_data.format_aed(p["sales_aed"]), f"{p['contribution_pct']:.1f}%",
+            p["rank"], p["sku"],
+            p.get("collection", ""), p.get("availability", ""),
+        ] for p, _r, _xy in rows]
+
+        detail = (
+            "<b>%{customdata[0]}</b><br>"
+            "<span style='color:#F2CA50'>%{customdata[1]}</span><br><br>"
+            "Units sold&nbsp;&nbsp;<b>%{customdata[2]}</b><br>"
+            "Sales value&nbsp;&nbsp;<b>%{customdata[3]}</b><br>"
+            "Contribution&nbsp;&nbsp;<b>%{customdata[4]}</b><br>"
+            "Rank&nbsp;&nbsp;<b>#%{customdata[5]}</b>"
+        )
+        if is_seasonal:
+            detail += ("<br><br>Collection&nbsp;&nbsp;<b>%{customdata[7]}</b>"
+                       "<br>Available&nbsp;&nbsp;<b>%{customdata[8]}</b>")
+
+        fig.add_trace(go.Scatter(
+            x=[xy[0] for _p, _r, xy in rows],
+            y=[xy[1] for _p, _r, xy in rows],
+            mode="markers", name=division, customdata=custom,
+            marker=dict(
+                size=[r * 2 for _p, r, _xy in rows], sizemode="diameter",
+                color=SKU_DIVISION_COLORS.get(division, COLORS["primary"]),
+                opacity=0.9,
+                line=dict(width=1, color=hex_to_rgba(COLORS["bg"], 0.85)),
+            ),
+            hovertemplate=detail + "<extra></extra>",
+        ))
+
+    # Ring the selected SKU rather than restyling its marker in place.
+    if selected_sku:
+        for p, r, xy in zip(ordered, radii, coords):
+            if p["sku"] == selected_sku:
+                fig.add_trace(go.Scatter(
+                    x=[xy[0]], y=[xy[1]], mode="markers", showlegend=False,
+                    hoverinfo="skip",
+                    marker=dict(size=r * 2 + 12, sizemode="diameter",
+                                color="rgba(0,0,0,0)",
+                                line=dict(width=2, color=COLORS["text"])),
+                ))
+                break
+
+    for division in divisions:
+        rows = [xy for p, _r, xy in zip(ordered, radii, coords)
+                if p["division"] == division]
+        if rows:
+            fig.add_annotation(
+                x=sum(x for x, _y in rows) / len(rows), y=-14,
+                text=division.upper(), showarrow=False,
+                font=dict(family="Inter", size=10, color=COLORS["text_soft"]),
+            )
+
+    fig.update_layout(
+        height=470, showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=10, b=34),
+        xaxis=dict(visible=False, range=[0, BUBBLE_W], fixedrange=True),
+        yaxis=dict(visible=False, range=[-30, BUBBLE_H], fixedrange=True),
+        hoverlabel=dict(bgcolor=COLORS["surface"], bordercolor=COLORS["border"],
+                        font=dict(family="Inter", size=12, color=COLORS["text"]),
+                        align="left"),
+        dragmode=False,
+    )
+    return fig
+
+
+def sku_table(products, division):
+    """Display-ready SKU table for one division."""
+    rows = sorted((p for p in products if p["division"] == division),
+                  key=lambda p: p["rank"])
+    table = {
+        "SKU": [p["sku"] for p in rows],
+        "Product": [p["product"] for p in rows],
+        "Units sold": [f"{p['units']:,}" for p in rows],
+        "Sales value": [sku_data.format_aed(p["sales_aed"]) for p in rows],
+        "Contr. %": [f"{p['contribution_pct']:.1f}%" for p in rows],
+        "Rank": [p["rank"] for p in rows],
+    }
+    if division == sku_data.SEASONAL_DIVISION:
+        table["Availability"] = [p.get("availability", "—") for p in rows]
+    return pd.DataFrame(table)
 
 
 section = render_top_nav()
@@ -2349,6 +2566,125 @@ elif section == "company_profile":
 # ========================================================================
 # SECTION E — DATA PROCESSOR (AI-powered rough-data cleanup)
 # ========================================================================
+# ========================================================================
+# SECTION E — BAKERY PRODUCT PERFORMANCE (SKU)
+# ========================================================================
+elif section == "sku_performance":
+    products = load_sku_products()
+    k = sku_data.kpis(products)
+
+    # --- KPI strip ---
+    with st.container(border=True):
+        kpi_cols = st.columns(5, vertical_alignment="top")
+        # Figures share one size; the two name KPIs step down so a long
+        # product name wraps to two lines without pushing the row around.
+        # The cell has a fixed min-height so all five labels stay on one line.
+        headline = [
+            ("Total sales",  sku_data.format_aed(k["total_sales"]),   "2.1rem", COLORS["text"]),
+            ("Units sold",   sku_data.format_units(k["total_units"]), "2.1rem", COLORS["text"]),
+            ("Active SKUs",  f"{k['active_skus']}",                   "2.1rem", COLORS["text"]),
+            ("Top division", k["top_division"],                       "1.4rem", COLORS["primary"]),
+            ("Top product",  k["top_product"],                        "1.4rem", COLORS["text"]),
+        ]
+        for col, (label, value, size, colour) in zip(kpi_cols, headline):
+            col.markdown(
+                f"<div style='padding:14px 14px 10px 14px; min-height:104px;'>"
+                f"<div class='kpi-label'>{label}</div>"
+                f"<div class='kpi-value' style='font-size:{size}; color:{colour}; "
+                f"line-height:1.15;'>{value}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("#### Division performance")
+    st.caption("Each bubble is one SKU, sized by units sold and grouped into its division. "
+               "Hover for detail, or click a bubble to open that SKU in the table below.")
+
+    division_choice = st.radio(
+        "Division filter",
+        ["All", *sku_data.DIVISIONS],
+        horizontal=True, label_visibility="collapsed", key="sku_division_filter",
+    )
+    visible = products if division_choice == "All" else \
+        [p for p in products if p["division"] == division_choice]
+
+    selected_sku = st.session_state.get("sku_selected")
+    # A SKU filtered out of view should not stay selected.
+    if selected_sku and not any(p["sku"] == selected_sku for p in visible):
+        selected_sku = None
+        st.session_state["sku_selected"] = None
+
+    with st.container(border=True):
+        event = st.plotly_chart(
+            build_bubble_figure(visible, selected_sku),
+            width='stretch', key="sku_bubbles",
+            on_select="rerun", selection_mode="points",
+            config={"displayModeBar": False},
+        )
+
+    # Clicking a bubble selects that SKU; the table below reacts to it.
+    picked = (event.selection or {}).get("points") if event else None
+    if picked:
+        clicked = picked[0].get("customdata", [None] * 7)[6]
+        if clicked and clicked != selected_sku:
+            st.session_state["sku_selected"] = clicked
+            st.rerun()
+
+    if selected_sku:
+        chosen = next(p for p in visible if p["sku"] == selected_sku)
+        pick_cols = st.columns([6, 1], vertical_alignment="center")
+        pick_cols[0].markdown(
+            f"<span class='pill pill-ok'>Selected · {chosen['product']} "
+            f"({chosen['sku']}) — {chosen['division']}</span>",
+            unsafe_allow_html=True,
+        )
+        if pick_cols[1].button("Clear", key="sku_clear", width='stretch'):
+            st.session_state["sku_selected"] = None
+            st.rerun()
+
+    # --- SKU details ---
+    st.markdown("#### SKU details")
+    query = st.text_input(
+        "Search SKU or product", placeholder="Search SKU or product…",
+        label_visibility="collapsed", key="sku_search",
+    ).strip().lower()
+
+    matching = [p for p in visible
+                if not query
+                or query in p["sku"].lower() or query in p["product"].lower()]
+    if query and not matching:
+        st.caption(f"No SKU or product matches “{query}”.")
+
+    selected_division = next(
+        (p["division"] for p in visible if p["sku"] == selected_sku), None)
+
+    for division in sku_data.DIVISIONS:
+        rows = [p for p in matching if p["division"] == division]
+        if not rows:
+            continue
+        title = division
+        if division == sku_data.SEASONAL_DIVISION:
+            title = f"{division} — {sku_data.SEASONAL_COLLECTION}"
+        # Open the division holding the clicked SKU, or every division with
+        # a search hit; otherwise leave them closed.
+        expanded = (division == selected_division) or bool(query)
+        with st.expander(f"{title}  ·  {len(rows)} SKUs", expanded=expanded):
+            frame = sku_table(rows, division)
+            if selected_sku and selected_sku in set(frame["SKU"]):
+                highlight = hex_to_rgba(COLORS["primary"], 0.16)
+                styled = frame.style.apply(
+                    lambda row: [f"background-color: {highlight}"
+                                 if row["SKU"] == selected_sku else "" for _ in row],
+                    axis=1,
+                )
+                st.dataframe(styled, width='stretch', hide_index=True)
+            else:
+                st.dataframe(frame, width='stretch', hide_index=True)
+
+    st.caption("Figures are illustrative pending Grandiose-provided SKU actuals. "
+               "Contribution % is each SKU's share of total bakery sales; rank is by "
+               "sales value across all divisions.")
+
 elif section == "data_processor":
     ai_client = get_anthropic_client()
     badge_cls = "pill-ok" if ai_client is not None else "pill-warn"
