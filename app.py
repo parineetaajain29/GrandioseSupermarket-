@@ -1244,6 +1244,11 @@ PAGE_META = {
 
 FOOTER_LINKS = ["Privacy Policy", "Terms of Service", "Financial Disclosure", "Contact Support"]
 
+# Shared height for every cell in the nav row — wordmark, links and icons all
+# get this exact box so they resolve to one common centre line regardless of
+# how tall their own content happens to be.
+NAV_ROW_H = 38
+
 NAV_ICONS_HTML = (
     "<div class='gd-nav-icons'>"
     "<svg viewBox='0 0 24 24' role='img' aria-label='Notifications'>"
@@ -1269,12 +1274,24 @@ st.markdown(f"""
     .stMainBlockContainer {{ padding-top: 2.2rem !important; max-width: 1350px; }}
 
     /* ---------------- TOP NAVIGATION BAR ---------------- */
+    /* A single bar with everything on one centre line — logo, links and
+       icons all sit on the same axis, the way the design has it. */
     .st-key-gd_topbar {{
         position: sticky; top: 0; z-index: 999;
         background-color: {COLORS['bg']};
         border-bottom: 1px solid {COLORS['border']};
         margin-bottom: 34px;
-        padding: 4px 4px 0 4px;
+        padding: 12px 0 10px 0;
+    }}
+    /* Streamlit wraps each markdown block in containers that carry their own
+       margins. Left alone they make the wordmark/icon cells taller than the
+       button cells, so centring resolves to a different line for each and the
+       row looks off. Zero them out inside the bar only. */
+    .st-key-gd_topbar [data-testid="stMarkdown"],
+    .st-key-gd_topbar [data-testid="stMarkdownContainer"],
+    .st-key-gd_topbar [data-testid="stElementContainer"],
+    .st-key-gd_topbar [data-testid="stVerticalBlock"] {{
+        margin: 0 !important; padding: 0 !important; gap: 0 !important;
     }}
     /* Nav links: strip the global ghost-button chrome down to a text link. */
     .st-key-gd_topbar [data-testid^="stBaseButton"] {{
@@ -1282,9 +1299,13 @@ st.markdown(f"""
         border: none !important;
         border-bottom: 2px solid transparent !important;
         border-radius: 0 !important;
-        padding: 4px 0 10px 0 !important;
-        min-height: 0 !important;
-        transition: border-color 0.25s ease, color 0.25s ease;
+        /* Symmetric padding + a fixed height so the link text lands on the
+           same centre line as the wordmark and the icons. */
+        padding: 0 !important;
+        height: {NAV_ROW_H}px !important; min-height: 0 !important;
+        display: flex !important; align-items: center !important;
+        justify-content: center !important;
+        transition: box-shadow 0.25s ease, color 0.25s ease;
     }}
     .st-key-gd_topbar [data-testid^="stBaseButton"] p {{
         color: {COLORS['text_soft']} !important;
@@ -1294,33 +1315,40 @@ st.markdown(f"""
         text-transform: uppercase !important;
         white-space: nowrap;
     }}
+    /* Underline is drawn as an inset shadow rather than a border, so the
+       active state cannot add 2px of height and knock the row off centre. */
     .st-key-gd_topbar [data-testid^="stBaseButton"]:hover {{
         background-color: transparent !important;
-        border-bottom-color: {hex_to_rgba(COLORS['primary'], 0.45)} !important;
+        box-shadow: inset 0 -2px 0 0 {hex_to_rgba(COLORS['primary'], 0.45)} !important;
     }}
     .st-key-gd_topbar [data-testid^="stBaseButton"]:hover p {{ color: {COLORS['primary']} !important; }}
     /* Active link — outranks the global solid-gold primary-button rule
        because this selector adds the container class. */
     .st-key-gd_topbar [data-testid*="rimary" i] {{
         background-color: transparent !important;
-        border-bottom: 2px solid {COLORS['primary']} !important;
+        box-shadow: inset 0 -2px 0 0 {COLORS['primary']} !important;
     }}
     .st-key-gd_topbar [data-testid*="rimary" i]:hover {{ background-color: transparent !important; }}
     .st-key-gd_topbar [data-testid*="rimary" i] p {{
         color: {COLORS['primary']} !important; font-weight: 700 !important;
     }}
 
+    /* Wordmark sits hard against the left edge of the canvas — the negative
+       pull cancels the column's own gutter so it lines up with the very
+       start of the bar rather than floating inboard of it. */
     .gd-logo {{
         font-family: 'Bebas Neue', sans-serif !important;
-        font-size: 1.95rem; line-height: 1.15; color: {COLORS['primary']};
-        text-transform: uppercase; letter-spacing: 0.14em;
-        padding: 0 18px 6px 0; white-space: nowrap;
+        font-size: 2.45rem; line-height: 1; color: {COLORS['primary']};
+        text-transform: uppercase; letter-spacing: 0.13em;
+        padding: 0 16px 0 0;
+        white-space: nowrap;
+        display: flex; align-items: center; height: {NAV_ROW_H}px;
     }}
     /* Status icons — inline SVG rather than an icon font, so they can never
        flash their ligature text ("notifications") while a font loads. */
     .gd-nav-icons {{
         display: flex; justify-content: flex-end; align-items: center;
-        gap: 16px; padding-bottom: 12px;
+        gap: 18px; padding: 0; height: {NAV_ROW_H}px;
     }}
     .gd-nav-icons svg {{
         width: 18px; height: 18px; flex: none;
@@ -1382,7 +1410,7 @@ def render_top_nav():
 
     with st.container(key="gd_topbar"):
         cols = st.columns([2.9, 1.95, 2.1, 1.62, 1.62, 1.58, 0.85],
-                          vertical_alignment="bottom")
+                          vertical_alignment="center")
         cols[0].markdown("<div class='gd-logo'>Grandiose</div>", unsafe_allow_html=True)
 
         for col, (key, label) in zip(cols[1:], NAV_ITEMS):
