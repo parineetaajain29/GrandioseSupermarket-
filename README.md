@@ -112,11 +112,32 @@ and `employee_goals` (goals / self-assessments / manager feedback).
      hours_worked numeric not null default 0,
      batch_time_adherence_pct integer not null default 0,
      quality_pass_pct integer not null default 0,
-     revenue_generated numeric not null default 0,
+     break_minutes integer not null default 35,
+     downtime_minutes integer not null default 0,
+     changeover_minutes integer not null default 0,
+     revenue_generated numeric,
      notes text,
      created_at timestamptz not null default now()
    );
+   ```
 
+   `revenue_generated` is nullable, no default — the Employee Portal treats
+   "not entered" and "entered as zero" as different things (a blank field
+   means excluded from revenue-per-labour-dirham, not counted as AED 0).
+
+   If you already created this table before the labour-efficiency rework,
+   migrate it instead of recreating it:
+
+   ```sql
+   alter table employee_performance
+     add column if not exists break_minutes integer not null default 35,
+     add column if not exists downtime_minutes integer not null default 0,
+     add column if not exists changeover_minutes integer not null default 0;
+   alter table employee_performance alter column revenue_generated drop not null;
+   alter table employee_performance alter column revenue_generated drop default;
+   ```
+
+   ```sql
    create table employee_goals (
      id bigint generated always as identity primary key,
      employee_name text not null,

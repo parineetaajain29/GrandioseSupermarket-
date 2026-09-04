@@ -33,6 +33,8 @@ from pypdf import PdfReader
 from docx import Document as DocxDocument
 from supabase import create_client
 import sku_data
+import labour_calc
+from labour_config import LABOUR_CONFIG
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -445,6 +447,24 @@ PLOTLY_DARK = dict(
     margin=dict(l=10, r=10, t=25, b=10),
 )
 GRID_COLOR = "rgba(255,255,255,0.06)"
+
+# ----------------------------------------------------------------------
+# DISPLAY-PRECISION FORMATTERS (§A9) — the only place a labour_calc figure
+# gets rounded. Every value from labour_calc.py stays full-float until it
+# reaches one of these; `None` (an undefined ratio, or missing revenue)
+# always renders as "—", never 0.00 or 0%.
+# ----------------------------------------------------------------------
+def fmt_hours(value):
+    return "—" if value is None else f"{value:.2f}"
+
+def fmt_pct(value):
+    return "—" if value is None else f"{value:.1f}%"
+
+def fmt_aed(value):
+    return "—" if value is None else f"AED {value:,.2f}"
+
+def fmt_ratio(value):
+    return "—" if value is None else f"{value:.2f}×"
 
 def sparkline(values, color):
     fig = go.Figure()
@@ -1142,6 +1162,40 @@ STANDARD_SHIFT_HOURS = 9.0
 # Company-wide wastage target from the MoM (current is 2-3%, target is 1%).
 WASTAGE_TARGET_PCT = 1.0
 
+# Production lines vs. support functions — labour_calc's §A7 revenue
+# attribution treats these differently: production departments log revenue
+# directly, support departments receive an allocated share instead.
+PRODUCTION_DEPARTMENTS = set(DEPARTMENT_CAPACITY_TARGET)
+
+# Support department's share of production-line revenue, by that
+# department's share of total support headcount. PLACEHOLDER basis pending
+# real figures from finance (§A7) — TODO: CONFIRM WITH GM/FINANCE.
+_SUPPORT_DEPARTMENTS = [d for d in DEPARTMENT_HEADCOUNT if d not in PRODUCTION_DEPARTMENTS]
+_SUPPORT_HEADCOUNT_TOTAL = sum(DEPARTMENT_HEADCOUNT[d] for d in _SUPPORT_DEPARTMENTS)
+DEPARTMENT_ALLOCATION_WEIGHT = {
+    d: DEPARTMENT_HEADCOUNT[d] / _SUPPORT_HEADCOUNT_TOTAL for d in _SUPPORT_DEPARTMENTS
+}
+
+# Illustrative average daily salary cost per department (AED) — no real
+# payroll data exists yet, so these are placeholders only. Feeds
+# cost-per-productive-hour and revenue-per-labour-dirham in the Employee
+# Portal's labour economics section. TODO: CONFIRM WITH GM/HR.
+DEPARTMENT_AVG_DAILY_SALARY_AED = {
+    "Baklava": 160.0,
+    "French Bakery": 160.0,
+    "Arabic Bread": 150.0,
+    "Viennoiserie (Croissant/Danish)": 165.0,
+    "Tahina": 140.0,
+    "QC": 145.0,
+    "Packing & Dispatch": 120.0,
+    "Store": 120.0,
+    "Maintenance": 150.0,
+    "GM": 400.0,
+    "Office": 180.0,
+    "Drivers": 130.0,
+    "Third-Party Cleaners": 100.0,
+}
+
 # Illustrative sample employees per department (placeholders — swap in
 # Grandiose's real staff names/IDs once available). Not every headcount
 # above has a named entry; these exist so the portal and department
@@ -1247,6 +1301,112 @@ def portal_fetch(table, filters=None):
 
 def portal_storage_mode():
     return "Supabase (persistent)" if get_supabase_client() is not None else "In-session only (not saved after restart)"
+
+
+def compute_labour_summary(shift_df, department):
+    """
+    §A4-§A8 labour-efficiency chain for a group of shift-log rows (one
+    employee's own logs, or a whole department's) — shared by the employee
+    "My performance" tab and the Manager/HR department view so both always
+    show the same numbers for the same underlying shifts.
+
+    `shift_df` must already have its numeric columns coerced (the caller's
+    `pd.to_numeric` pass). Returns a dict of the rolled-up hours (§A8:
+    aggregated first, then converted to percentages) plus the labour
+    economics figures — `None` for any ratio with a missing/zero input.
+    """
+    breaks_are_paid = LABOUR_CONFIG["breaks_are_paid"]
+    shift_hours_rows = []
+    for _, r in shift_df.iterrows():
+        hw = r.get("hours_worked")
+        paid_hours_row = hw if pd.notna(hw) and hw > 0 else LABOUR_CONFIG["shift_length_hours"]
+        bm = r.get("break_minutes")
+        bm = bm if pd.notna(bm) else LABOUR_CONFIG["default_break_minutes"]
+        dm = r.get("downtime_minutes")
+        dm = dm if pd.notna(dm) else 0
+        cm = r.get("changeover_minutes")
+        cm = cm if pd.notna(cm) else 0
+        shift_hours_rows.append(labour_calc.compute_shift_hours(
+            paid_hours=paid_hours_row, break_minutes=bm, changeover_minutes=cm,
+            downtime_minutes=dm, breaks_are_paid=breaks_are_paid,
+        ))
+    rolled = labour_calc.rollup_hours(shift_hours_rows)
+
+    naive_mean_true_efficiency = None
+    per_row_true_eff = [labour_calc.true_efficiency_pct(sh["productive_hours"], sh["paid_hours"])
+                         for sh in shift_hours_rows]
+    per_row_true_eff = [v for v in per_row_true_eff if v is not None]
+    if per_row_true_eff:
+        naive_mean_true_efficiency = sum(per_row_true_eff) / len(per_row_true_eff)
+
+    days_worked = len(shift_df)
+    total_salary_cost = DEPARTMENT_AVG_DAILY_SALARY_AED.get(department)
+    if total_salary_cost is not None:
+        total_salary_cost = total_salary_cost * days_worked
+
+    revenue_is_allocated = department not in PRODUCTION_DEPARTMENTS
+    if not revenue_is_allocated:
+        rev_series = shift_df["revenue_generated"] if "revenue_generated" in shift_df.columns else pd.Series(dtype=float)
+        revenue_attributed = rev_series.sum() if rev_series.notna().any() else None
+    else:
+        all_perf, _err = portal_fetch("employee_performance")
+        production_revenue_total = None
+        if not all_perf.empty and {"revenue_generated", "department"} <= set(all_perf.columns):
+            prod_rows = all_perf[all_perf["department"].isin(PRODUCTION_DEPARTMENTS)]
+            prod_rev = pd.to_numeric(prod_rows["revenue_generated"], errors="coerce")
+            production_revenue_total = prod_rev.sum() if prod_rev.notna().any() else None
+        revenue_attributed = labour_calc.compute_revenue_attributed(
+            production_revenue_total, DEPARTMENT_ALLOCATION_WEIGHT.get(department))
+
+    return {
+        "rolled": rolled,
+        "naive_mean_true_efficiency": naive_mean_true_efficiency,
+        "days_worked": days_worked,
+        "breaks_are_paid": breaks_are_paid,
+        "total_salary_cost": total_salary_cost,
+        "revenue_is_allocated": revenue_is_allocated,
+        "revenue_attributed": revenue_attributed,
+        "cost_per_productive_hour": labour_calc.cost_per_productive_hour(total_salary_cost, rolled["productive_hours"]),
+        "revenue_per_labour_dirham": labour_calc.revenue_per_labour_dirham(revenue_attributed, total_salary_cost),
+        "revenue_per_day": labour_calc.revenue_per_day(revenue_attributed, days_worked),
+    }
+
+
+def render_labour_economics_cards(summary):
+    """Shared 4-card labour-economics row (§A10.4) plus its muted footnotes —
+    reused by both the employee and manager views so they render identically."""
+    le1, le2, le3, le4 = st.columns(4)
+    with le1:
+        st.markdown(f"<div class='kpi-label'>Salary cost</div>"
+                    f"<div class='kpi-value' style='font-size:1.4rem;'>{fmt_aed(summary['total_salary_cost'])}</div>",
+                    unsafe_allow_html=True)
+    with le2:
+        st.markdown(f"<div class='kpi-label'>Cost / productive hour</div>"
+                    f"<div class='kpi-value' style='font-size:1.4rem;'>{fmt_aed(summary['cost_per_productive_hour'])}</div>",
+                    unsafe_allow_html=True)
+    with le3:
+        st.markdown(f"<div class='kpi-label'>Revenue attributed</div>"
+                    f"<div class='kpi-value' style='font-size:1.4rem;'>{fmt_aed(summary['revenue_attributed'])}</div>",
+                    unsafe_allow_html=True)
+    with le4:
+        st.markdown(f"<div class='kpi-label'>Revenue / labour dirham</div>"
+                    f"<div class='kpi-value' style='font-size:1.4rem;'>{fmt_ratio(summary['revenue_per_labour_dirham'])}</div>",
+                    unsafe_allow_html=True)
+    if summary["revenue_is_allocated"]:
+        st.caption("Revenue allocated, not directly attributed.")
+    st.caption("Salary cost is an illustrative placeholder pending HR/finance-confirmed figures.")
+
+    rev_per_day = summary["revenue_per_day"]
+    if rev_per_day is None:
+        st.caption(f"Actual AED/day: — vs GM benchmark "
+                   f"AED {LABOUR_CONFIG['gm_daily_benchmark_aed']:,.0f}/day — variance: —")
+    else:
+        variance = rev_per_day - LABOUR_CONFIG["gm_daily_benchmark_aed"]
+        variance_str = fmt_aed(variance)
+        if variance >= 0:
+            variance_str = f"+{variance_str}"
+        st.caption(f"Actual AED/day: {fmt_aed(rev_per_day)} vs GM benchmark "
+                   f"AED {LABOUR_CONFIG['gm_daily_benchmark_aed']:,.0f}/day — variance: {variance_str}")
 
 
 # ----------------------------------------------------------------------
@@ -2159,9 +2319,73 @@ elif section == "employee_portal":
                 pass
             else:
                 for col in ["units_produced", "wastage_pct", "hours_worked", "batch_time_adherence_pct",
-                            "quality_pass_pct", "revenue_generated"]:
+                            "quality_pass_pct", "revenue_generated", "break_minutes",
+                            "downtime_minutes", "changeover_minutes"]:
                     if col in perf_df.columns:
                         perf_df[col] = pd.to_numeric(perf_df[col], errors="coerce")
+
+                # =========================================================
+                # LABOUR EFFICIENCY — §A10 rework. Shows the chain (headline,
+                # deduction bar, deduction table, labour economics, benchmark)
+                # rather than just a single number, using labour_calc.py so
+                # this always matches the Manager/HR view for the same
+                # underlying shifts. Employee view leads with performance
+                # while working (§A5) — unaffected by equipment failure or
+                # changeover, so honest downtime reporting never costs them.
+                # =========================================================
+                summary = compute_labour_summary(perf_df, emp_dept)
+                rolled = summary["rolled"]
+                breaks_are_paid = summary["breaks_are_paid"]
+
+                with st.container(border=True):
+                    st.markdown(
+                        f"<div class='kpi-label'>Performance while working (your number)</div>"
+                        f"<div class='kpi-value'>{fmt_pct(rolled['performance_while_working_pct'])}</div>"
+                        f"<div style='color:{COLORS['text_soft']}; font-size:0.85rem; margin-top:2px;'>"
+                        f"True efficiency (management's number): {fmt_pct(rolled['true_efficiency_pct'])}</div>",
+                        unsafe_allow_html=True)
+                    st.caption(f"Breaks treated as {'paid' if breaks_are_paid else 'unpaid'} — pending confirmation.")
+
+                    bar_segments = [
+                        ("Productive", rolled["bar_productive_hours"], COLORS["primary"]),
+                        ("Changeover", rolled["changeover_hours"], COLORS["primary_deep"]),
+                        ("Downtime", rolled["downtime_hours"], COLORS["warning"]),
+                        ("Breaks", rolled["break_hours"], COLORS["secondary"]),
+                        ("Idle", rolled["idle_waiting_hours"], COLORS["tertiary"]),
+                    ]
+                    fig_bar = go.Figure()
+                    for label, hrs, color in bar_segments:
+                        fig_bar.add_trace(go.Bar(
+                            x=[hrs], y=[""], name=f"{label} ({fmt_hours(hrs)}h)",
+                            orientation="h", marker_color=color, marker_line_width=0,
+                        ))
+                    fig_bar.update_layout(**PLOTLY_DARK, height=110, barmode="stack",
+                                          xaxis=dict(gridcolor=GRID_COLOR, title="Hours"),
+                                          yaxis=dict(visible=False),
+                                          legend=dict(orientation="h", y=-0.5, font=dict(color=COLORS["text_soft"])))
+                    st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
+
+                    ded_rows = [
+                        ("Paid hours", rolled["paid_hours"], False),
+                        ("− Break time" + (" (paid, not deducted)" if breaks_are_paid else ""),
+                         0.0 if breaks_are_paid else rolled["break_hours"], False),
+                        ("− Changeover / setup", rolled["changeover_hours"], False),
+                        ("− Waiting for equipment", rolled["downtime_hours"], False),
+                        ("− Idle waiting", rolled["idle_waiting_hours"], False),
+                        ("= Productive hours", rolled["productive_hours"], True),
+                    ]
+                    ded_html = "".join(
+                        f"<tr style='border-top:{('1px solid ' + COLORS['border']) if bordered else 'none'};"
+                        f"font-weight:{700 if bordered else 400};'>"
+                        f"<td style='padding:4px 12px 4px 0;'>{label}</td>"
+                        f"<td style='padding:4px 0; text-align:right; "
+                        f"font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'>{fmt_hours(hrs)}</td></tr>"
+                        for label, hrs, bordered in ded_rows
+                    )
+                    st.markdown(f"<table style='width:100%; border-collapse:collapse; color:{COLORS['text']};'>"
+                                f"{ded_html}</table>", unsafe_allow_html=True)
+
+                    render_labour_economics_cards(summary)
 
                 avg_wastage = perf_df["wastage_pct"].mean()
                 wastage_pill = ("pill-ok" if avg_wastage <= WASTAGE_TARGET_PCT
@@ -2190,11 +2414,13 @@ elif section == "employee_portal":
                 c5, c6 = st.columns(2)
                 with c5, st.container(border=True):
                     avg_hours = perf_df["hours_worked"].mean() if perf_df["hours_worked"].mean() > 0 else STANDARD_SHIFT_HOURS
-                    avg_revenue = perf_df["revenue_generated"].mean() if "revenue_generated" in perf_df.columns else 0.0
-                    value_per_day = (avg_revenue / avg_hours) * STANDARD_SHIFT_HOURS if avg_hours else avg_revenue
-                    val_pill = "pill-ok" if value_per_day >= VALUE_PER_EMPLOYEE_DAY_TARGET else "pill-warn"
+                    has_revenue = "revenue_generated" in perf_df.columns and perf_df["revenue_generated"].notna().any()
+                    value_per_day = ((perf_df["revenue_generated"].mean() / avg_hours) * STANDARD_SHIFT_HOURS
+                                      if has_revenue and avg_hours else None)
+                    val_pill = ("pill-ok" if value_per_day is not None and value_per_day >= VALUE_PER_EMPLOYEE_DAY_TARGET
+                                else "pill-warn" if value_per_day is not None else "pill-flat")
                     st.markdown(f"<div class='kpi-label'>Value generated / day</div>"
-                                f"<div class='kpi-value' style='font-size:1.7rem;'>AED {value_per_day:,.0f}</div>"
+                                f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_aed(value_per_day)}</div>"
                                 f"<span class='pill {val_pill}'>GM benchmark: AED {VALUE_PER_EMPLOYEE_DAY_TARGET:,.0f}/day</span>",
                                 unsafe_allow_html=True)
                 with c6, st.container(border=True):
@@ -2254,15 +2480,34 @@ elif section == "employee_portal":
                 hours = colf1.number_input("Hours worked", 0.0, 16.0, STANDARD_SHIFT_HOURS, 0.5)
                 units_failed_qc = colf2.number_input("Units that failed QC check", 0, 1000, 5, 1,
                                                        help="How many units failed a quality check this shift.")
+
+                st.markdown("###### Break, downtime & changeover")
+                st.caption(
+                    "These are used to work out true efficiency. Reporting downtime honestly "
+                    "does not lower your personal performance score — it flags an equipment "
+                    "or scheduling issue."
+                )
+                colf5, colf6, colf7 = st.columns(3)
+                break_minutes = colf5.number_input(
+                    "Break time taken (minutes)", 0, 600, LABOUR_CONFIG["default_break_minutes"], 5,
+                    help="Total break minutes this shift.")
+                downtime_minutes = colf6.number_input(
+                    "Waiting for equipment (minutes)", 0, 600, 0, 5,
+                    help="Machine down, oven not ready, or waiting on materials.")
+                changeover_minutes = colf7.number_input(
+                    "Changeover / setup (minutes)", 0, 600, 0, 5,
+                    help="Switching between products or batch setup.")
+
                 colf3, colf4 = st.columns(2)
                 batches_completed = colf3.number_input("Batches completed", 0, 200, 10, 1)
                 batches_on_time = colf4.number_input("Batches finished on/within standard time", 0, 200, 9, 1,
                                                        help="Of the batches completed, how many finished within the standard time for that batch?")
                 revenue = st.number_input(
-                    "Revenue/value generated (AED, optional)", 0.0, 50000.0, 0.0, 50.0,
+                    "Revenue/value generated (AED, optional)", min_value=0.0, max_value=50000.0, value=None, step=50.0,
                     help="Feeds the productivity benchmark: GM's rule of thumb is each employee should "
-                         "generate ~AED 1,000/day. Leave at 0 if not tracked yet for this shift."
+                         "generate ~AED 1,000/day."
                 )
+                st.caption("Leave blank if not tracked for your line — it will be excluded rather than counted as zero.")
                 notes = st.text_area("Notes (optional)", placeholder="Any incidents, equipment issues, etc.")
                 submitted = st.form_submit_button("Submit shift log", width='stretch', type="primary")
                 if submitted:
@@ -2277,7 +2522,9 @@ elif section == "employee_portal":
                         "batches_on_time": int(batches_on_time), "units_failed_qc": int(units_failed_qc),
                         "wastage_pct": wastage_pct, "hours_worked": float(hours),
                         "batch_time_adherence_pct": batch_adh_pct, "quality_pass_pct": quality_pct,
-                        "revenue_generated": float(revenue), "notes": notes,
+                        "break_minutes": int(break_minutes), "downtime_minutes": int(downtime_minutes),
+                        "changeover_minutes": int(changeover_minutes),
+                        "revenue_generated": (float(revenue) if revenue is not None else None), "notes": notes,
                     })
                     if ok:
                         st.toast(f"Shift log saved — wastage {wastage_pct}%, batch adherence {batch_adh_pct}%, "
@@ -2341,6 +2588,30 @@ elif section == "employee_portal":
                 tag_html = f"<span class='pill {tag_cls}' style='margin-left:8px;'>{tag_label}</span>" if tag_label else ""
 
                 dept_perf = all_perf[all_perf["department"] == dept_filter].copy()
+
+                # =====================================================
+                # LABOUR EFFICIENCY — department rollup (§A5, §A8). Manager
+                # view leads with true efficiency (the cost view — downtime
+                # correctly reduces it, since Grandiose paid for that time).
+                # Hours are aggregated FIRST, then percentages are computed
+                # from the aggregated hours — averaging each employee's own
+                # percentage is wrong whenever employees logged different
+                # numbers of shifts, and it is a silent error.
+                # =====================================================
+                dept_summary_labour = compute_labour_summary(dept_perf, dept_filter)
+                dept_rolled = dept_summary_labour["rolled"]
+
+                with st.container(border=True):
+                    st.markdown(
+                        f"<div class='kpi-label'>True efficiency — {dept_filter} (management's number)</div>"
+                        f"<div class='kpi-value'>{fmt_pct(dept_rolled['true_efficiency_pct'])}</div>"
+                        f"<div style='color:{COLORS['text_soft']}; font-size:0.85rem; margin-top:2px;'>"
+                        f"Naive mean of each employee's own %: {fmt_pct(dept_summary_labour['naive_mean_true_efficiency'])} — "
+                        f"wrong whenever employees logged different numbers of shifts</div>",
+                        unsafe_allow_html=True)
+                    st.caption(f"Breaks treated as {'paid' if dept_summary_labour['breaks_are_paid'] else 'unpaid'} "
+                               f"— pending confirmation.")
+                    render_labour_economics_cards(dept_summary_labour)
 
                 def _value_per_day(row_group):
                     hrs = row_group["hours_worked"].mean()
