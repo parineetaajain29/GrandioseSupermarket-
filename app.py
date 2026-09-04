@@ -1409,6 +1409,83 @@ def render_labour_economics_cards(summary):
                    f"AED {LABOUR_CONFIG['gm_daily_benchmark_aed']:,.0f}/day — variance: {variance_str}")
 
 
+def render_deduction_bar_and_table(rolled, breaks_are_paid):
+    """
+    §A10.2-3 — the proportional deduction bar and the deduction table below
+    it. The bar's legend is custom HTML, not a Plotly legend: five segment
+    names plus a "Hours" axis title and tick numbers all fighting for the
+    same cramped strip is what made the Plotly legend unreadable, so the
+    legend lives in the page below the chart instead, with the axis hidden
+    entirely (the exact hours are already in the legend and the table).
+
+    A segment with real but tiny hours (a few minutes of downtime) gets a
+    minimum visual width so it isn't an invisible hairline — only the
+    on-screen bar is padded, using hours borrowed from the largest segment;
+    the legend and the deduction table always show the true, unpadded hours.
+    """
+    raw_segments = [
+        ("Productive", rolled["bar_productive_hours"], COLORS["primary"]),
+        ("Changeover", rolled["changeover_hours"], COLORS["primary_deep"]),
+        ("Downtime", rolled["downtime_hours"], COLORS["warning"]),
+        ("Breaks", rolled["break_hours"], COLORS["secondary"]),
+        ("Idle", rolled["idle_waiting_hours"], COLORS["tertiary"]),
+    ]
+    total_hours = sum(hrs for _, hrs, _ in raw_segments) or 1.0
+    floor_hours = 0.035 * total_hours
+    display_hours = []
+    pad_total = 0.0
+    for _, hrs, _ in raw_segments:
+        if 0 < hrs < floor_hours:
+            display_hours.append(floor_hours)
+            pad_total += floor_hours - hrs
+        else:
+            display_hours.append(hrs)
+    if pad_total > 0:
+        largest_idx = max(range(len(raw_segments)), key=lambda i: raw_segments[i][1])
+        display_hours[largest_idx] = max(display_hours[largest_idx] - pad_total, 0.0)
+
+    fig_bar = go.Figure()
+    for (label, hrs, color), disp in zip(raw_segments, display_hours):
+        fig_bar.add_trace(go.Bar(
+            x=[disp], y=[""], orientation="h", marker_color=color, marker_line_width=0,
+            showlegend=False, hovertext=[f"{label}: {fmt_hours(hrs)}h"], hoverinfo="text",
+        ))
+    fig_bar.update_layout(**PLOTLY_DARK, height=54, barmode="stack", showlegend=False,
+                          margin=dict(l=4, r=4, t=4, b=4),
+                          xaxis=dict(visible=False), yaxis=dict(visible=False))
+    st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
+
+    legend_html = "".join(
+        f"<span style='display:inline-flex; align-items:center; gap:5px; margin:2px 16px 2px 0;'>"
+        f"<span style='width:10px; height:10px; border-radius:2px; background-color:{color}; "
+        f"display:inline-block; flex-shrink:0;'></span>"
+        f"<span style='color:{COLORS['text_soft']}; font-size:0.76rem;'>{label} ({fmt_hours(hrs)}h)</span></span>"
+        for label, hrs, color in raw_segments
+    )
+    st.markdown(f"<div style='display:flex; flex-wrap:wrap; margin:2px 0 14px 0;'>{legend_html}</div>",
+                unsafe_allow_html=True)
+
+    ded_rows = [
+        ("Paid hours", rolled["paid_hours"], False),
+        ("Break time (paid, not deducted)" if breaks_are_paid else "− Break time",
+         rolled["break_hours"], False),
+        ("− Changeover / setup", rolled["changeover_hours"], False),
+        ("− Waiting for equipment", rolled["downtime_hours"], False),
+        ("− Idle waiting", rolled["idle_waiting_hours"], False),
+        ("= Productive hours", rolled["productive_hours"], True),
+    ]
+    ded_html = "".join(
+        f"<tr style='border-top:{('1px solid ' + COLORS['border']) if bordered else 'none'};"
+        f"font-weight:{700 if bordered else 400};'>"
+        f"<td style='padding:4px 12px 4px 0;'>{label}</td>"
+        f"<td style='padding:4px 0; text-align:right; "
+        f"font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'>{fmt_hours(hrs)}</td></tr>"
+        for label, hrs, bordered in ded_rows
+    )
+    st.markdown(f"<table style='width:100%; border-collapse:collapse; color:{COLORS['text']};'>"
+                f"{ded_html}</table>", unsafe_allow_html=True)
+
+
 # ----------------------------------------------------------------------
 # APP CHROME — top navigation bar, page header, footer
 #
@@ -2346,45 +2423,7 @@ elif section == "employee_portal":
                         unsafe_allow_html=True)
                     st.caption(f"Breaks treated as {'paid' if breaks_are_paid else 'unpaid'} — pending confirmation.")
 
-                    bar_segments = [
-                        ("Productive", rolled["bar_productive_hours"], COLORS["primary"]),
-                        ("Changeover", rolled["changeover_hours"], COLORS["primary_deep"]),
-                        ("Downtime", rolled["downtime_hours"], COLORS["warning"]),
-                        ("Breaks", rolled["break_hours"], COLORS["secondary"]),
-                        ("Idle", rolled["idle_waiting_hours"], COLORS["tertiary"]),
-                    ]
-                    fig_bar = go.Figure()
-                    for label, hrs, color in bar_segments:
-                        fig_bar.add_trace(go.Bar(
-                            x=[hrs], y=[""], name=f"{label} ({fmt_hours(hrs)}h)",
-                            orientation="h", marker_color=color, marker_line_width=0,
-                        ))
-                    fig_bar.update_layout(**PLOTLY_DARK, height=110, barmode="stack",
-                                          xaxis=dict(gridcolor=GRID_COLOR, title="Hours"),
-                                          yaxis=dict(visible=False),
-                                          legend=dict(orientation="h", y=-0.5, font=dict(color=COLORS["text_soft"])))
-                    st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
-
-                    ded_rows = [
-                        ("Paid hours", rolled["paid_hours"], False),
-                        ("− Break time" + (" (paid, not deducted)" if breaks_are_paid else ""),
-                         0.0 if breaks_are_paid else rolled["break_hours"], False),
-                        ("− Changeover / setup", rolled["changeover_hours"], False),
-                        ("− Waiting for equipment", rolled["downtime_hours"], False),
-                        ("− Idle waiting", rolled["idle_waiting_hours"], False),
-                        ("= Productive hours", rolled["productive_hours"], True),
-                    ]
-                    ded_html = "".join(
-                        f"<tr style='border-top:{('1px solid ' + COLORS['border']) if bordered else 'none'};"
-                        f"font-weight:{700 if bordered else 400};'>"
-                        f"<td style='padding:4px 12px 4px 0;'>{label}</td>"
-                        f"<td style='padding:4px 0; text-align:right; "
-                        f"font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'>{fmt_hours(hrs)}</td></tr>"
-                        for label, hrs, bordered in ded_rows
-                    )
-                    st.markdown(f"<table style='width:100%; border-collapse:collapse; color:{COLORS['text']};'>"
-                                f"{ded_html}</table>", unsafe_allow_html=True)
-
+                    render_deduction_bar_and_table(rolled, breaks_are_paid)
                     render_labour_economics_cards(summary)
 
                 avg_wastage = perf_df["wastage_pct"].mean()
@@ -2439,14 +2478,18 @@ elif section == "employee_portal":
 
                 with st.container(border=True):
                     plot_df = perf_df.sort_values("log_date") if "log_date" in perf_df.columns else perf_df
-                    fig_e = go.Figure()
-                    fig_e.add_trace(go.Scatter(x=plot_df.get("log_date", plot_df.index), y=plot_df["units_produced"],
-                                                mode="lines+markers", name="Units produced",
-                                                line=dict(color=COLORS["primary"], width=2.5)))
-                    fig_e.update_layout(**PLOTLY_DARK, height=260, yaxis=dict(gridcolor=GRID_COLOR),
-                                        xaxis=dict(gridcolor="rgba(0,0,0,0)"),
-                                        legend=dict(font=dict(color=COLORS["text_soft"])))
-                    st.plotly_chart(fig_e, width='stretch', config={"displayModeBar": False})
+                    if len(plot_df) < 2:
+                        st.markdown("<div class='kpi-label'>Units produced trend</div>", unsafe_allow_html=True)
+                        st.caption("Log at least 2 shifts to see a trend here.")
+                    else:
+                        fig_e = go.Figure()
+                        fig_e.add_trace(go.Scatter(x=plot_df.get("log_date", plot_df.index), y=plot_df["units_produced"],
+                                                    mode="lines+markers", name="Units produced",
+                                                    line=dict(color=COLORS["primary"], width=2.5)))
+                        fig_e.update_layout(**PLOTLY_DARK, height=260, yaxis=dict(gridcolor=GRID_COLOR),
+                                            xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                                            legend=dict(font=dict(color=COLORS["text_soft"])))
+                        st.plotly_chart(fig_e, width='stretch', config={"displayModeBar": False})
 
                 # --- Shift breakdown (Arabic Bread runs a separate night shift) ---
                 if emp_dept == "Arabic Bread" and "shift" in perf_df.columns and perf_df["shift"].nunique() > 1:
