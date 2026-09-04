@@ -2552,7 +2552,7 @@ elif section == "employee_portal":
                 )
                 st.caption("Leave blank if not tracked for your line — it will be excluded rather than counted as zero.")
                 notes = st.text_area("Notes (optional)", placeholder="Any incidents, equipment issues, etc.")
-                submitted = st.form_submit_button("Submit shift log", width='stretch', type="primary")
+                submitted = st.form_submit_button("Submit shift log", width='stretch')
                 if submitted:
                     total_output = units + units_wasted
                     wastage_pct = round((units_wasted / total_output) * 100, 1) if total_output > 0 else 0.0
