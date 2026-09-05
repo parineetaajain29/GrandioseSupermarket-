@@ -1449,9 +1449,15 @@ def render_segmented_bar(segments, height=54, min_frac=0.035, legend_margin="2px
             x=[disp], y=[""], orientation="h", marker_color=color, marker_line_width=0,
             showlegend=False, hovertext=[label], hoverinfo="text",
         ))
-    fig.update_layout(**PLOTLY_DARK, height=height, barmode="stack", showlegend=False,
-                      margin=dict(l=4, r=4, t=4, b=4),
-                      xaxis=dict(visible=False), yaxis=dict(visible=False))
+    # PLOTLY_DARK already carries its own default "margin" — passing margin=
+    # again as a literal kwarg alongside **PLOTLY_DARK raises "got multiple
+    # values for keyword argument 'margin'" at the call site (a Python
+    # argument-binding error, not a Plotly one), so the override has to be
+    # merged into the dict first rather than re-passed as a second kwarg.
+    layout = {**PLOTLY_DARK, "height": height, "barmode": "stack", "showlegend": False,
+              "margin": dict(l=4, r=4, t=4, b=4),
+              "xaxis": dict(visible=False), "yaxis": dict(visible=False)}
+    fig.update_layout(**layout)
     st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
     legend_html = "".join(
