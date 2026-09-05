@@ -3156,12 +3156,15 @@ elif section == "b2b_performance":
             days_tone = "negative" if days_vs_terms >= 0 else "positive"
         days_value = "—" if avg_collection_days is None else f"{avg_collection_days:.1f} days"
         render_kpi_pill_card("Avg collection days", days_value, days_badge, days_tone)
-        st.caption(f"Illustrative customer terms pending finance confirmation "
-                   f"(Grandiose's own supplier terms are net {b2b_data.SUPPLIER_TERMS_DAYS} days, "
-                   f"a different, payables-side figure).")
 
+    # Footnotes live below the row, not inside any one card, so all four
+    # cards stay the same height (a caption inside the 4th card previously
+    # made it taller than the other three and broke the row's alignment).
     st.caption("Retail comparison uses the existing gross-margin benchmark from the Performance Tracker — "
                "pending a true retail net-margin figure from finance.")
+    st.caption(f"Customer payment terms ({b2b_data.CUSTOMER_PAYMENT_TERMS_DAYS:.0f} days) are illustrative, "
+               f"pending finance confirmation — not to be confused with Grandiose's own supplier terms "
+               f"(net {b2b_data.SUPPLIER_TERMS_DAYS} days), a different, payables-side figure.")
 
     # ---------------- Revenue vs. service cost, 13 weeks ----------------
     st.markdown("#### Revenue vs. service cost — 13 weeks")
