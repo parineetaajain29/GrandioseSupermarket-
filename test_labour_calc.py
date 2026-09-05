@@ -17,6 +17,8 @@ from labour_calc import (
     utilisation_pct,
     true_efficiency_pct,
     performance_while_working_pct,
+    quality_yield_pct,
+    quality_adjusted_performance_pct,
     cost_per_productive_hour,
     revenue_per_labour_dirham,
     revenue_per_day,
@@ -135,3 +137,31 @@ def test_missing_revenue_returns_none_not_zero():
     assert revenue_per_day(None, days_worked=1) is None
     assert compute_revenue_attributed(division_revenue=None, allocation_weight=0.3) is None
     assert compute_revenue_attributed(division_revenue=1000.0, allocation_weight=None) is None
+
+
+# ---------------------------------------------------------------------
+# Quality-adjusted performance — a shift with clean hours but heavy
+# wastage must NOT read as 100%, unlike the pure hours-based number.
+# ---------------------------------------------------------------------
+
+def test_quality_yield_pct():
+    # 250 good units produced, 30 wasted, 5 of the 250 failed QC.
+    # attempted = 280, good = 245 -> 245/280 = 87.5%
+    assert quality_yield_pct(units_produced=250, units_wasted=30, units_failed_qc=5) == pytest.approx(87.5)
+    # No wastage/QC failure at all -> a clean 100%.
+    assert quality_yield_pct(units_produced=100, units_wasted=0, units_failed_qc=0) == pytest.approx(100.0)
+    # Nothing attempted -> undefined, not a division error.
+    assert quality_yield_pct(units_produced=0, units_wasted=0, units_failed_qc=0) is None
+
+
+def test_quality_adjusted_performance_pct_pulls_down_a_perfect_hours_score():
+    # Hours were perfect (100%) but quality was poor (60%) -> the
+    # quality-adjusted headline must reflect the wastage, not read 100%.
+    adjusted = quality_adjusted_performance_pct(performance_while_working_pct=100.0, quality_yield_pct=60.0)
+    assert adjusted == pytest.approx(60.0)
+    assert adjusted != 100.0
+
+
+def test_quality_adjusted_performance_pct_guards_missing_inputs():
+    assert quality_adjusted_performance_pct(None, 80.0) is None
+    assert quality_adjusted_performance_pct(90.0, None) is None

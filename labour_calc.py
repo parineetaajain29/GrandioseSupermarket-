@@ -94,6 +94,41 @@ def performance_while_working_pct(productive_hours, available_hours):
     return safe_divide(productive_hours, available_hours, 100.0)
 
 
+def quality_yield_pct(units_produced, units_wasted, units_failed_qc):
+    """
+    Share of ATTEMPTED output that was both kept (not wasted) and passed QC
+    — the "Quality" factor in an OEE-style Availability x Performance x
+    Quality decomposition. `units_produced` is already "good units" (not
+    wasted) per the Daily Log's own field label, and `units_failed_qc` is a
+    subset of it, so:
+
+        attempted  = units_produced + units_wasted
+        good       = units_produced - units_failed_qc
+        yield      = good / attempted
+
+    `None` if there was no attempted output at all.
+    """
+    total_attempted = units_produced + units_wasted
+    good_units = max(units_produced - units_failed_qc, 0)
+    return safe_divide(good_units, total_attempted, 100.0)
+
+
+def quality_adjusted_performance_pct(performance_while_working_pct, quality_yield_pct):
+    """
+    Performance x Quality — folds wastage/QC failures into the employee-
+    facing headline, so a shift with clean hours but heavy wastage no
+    longer reads as 100%. Deliberately NOT applied to `true_efficiency_pct`
+    (management's number): that one is a pure cost-of-time view by design
+    (§A5 — downtime reduces it because Grandiose paid for that time), and
+    quality/wastage is already tracked as its own KPI for managers.
+
+    `None` if either factor is undefined.
+    """
+    if performance_while_working_pct is None or quality_yield_pct is None:
+        return None
+    return performance_while_working_pct * quality_yield_pct / 100.0
+
+
 def cost_per_productive_hour(total_salary_cost, productive_hours):
     return safe_divide(total_salary_cost, productive_hours)
 

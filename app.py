@@ -1346,6 +1346,21 @@ def compute_labour_summary(shift_df, department):
     if total_salary_cost is not None:
         total_salary_cost = total_salary_cost * days_worked
 
+    # Quality yield (§ live-review fix): units_produced/wasted/failed_qc are
+    # summed FIRST across shifts, same as the hours above (§A8) — averaging
+    # each shift's own yield % would be the identical class of error.
+    def _sum_units_column(col):
+        if col not in shift_df.columns:
+            return 0.0
+        series = pd.to_numeric(shift_df[col], errors="coerce")
+        return series.sum() if series.notna().any() else 0.0
+
+    quality_yield = labour_calc.quality_yield_pct(
+        _sum_units_column("units_produced"), _sum_units_column("units_wasted"),
+        _sum_units_column("units_failed_qc"))
+    quality_adjusted_performance = labour_calc.quality_adjusted_performance_pct(
+        rolled["performance_while_working_pct"], quality_yield)
+
     revenue_is_allocated = department not in PRODUCTION_DEPARTMENTS
     if not revenue_is_allocated:
         rev_series = shift_df["revenue_generated"] if "revenue_generated" in shift_df.columns else pd.Series(dtype=float)
@@ -1365,6 +1380,8 @@ def compute_labour_summary(shift_df, department):
         "naive_mean_true_efficiency": naive_mean_true_efficiency,
         "days_worked": days_worked,
         "breaks_are_paid": breaks_are_paid,
+        "quality_yield_pct": quality_yield,
+        "quality_adjusted_performance_pct": quality_adjusted_performance,
         "total_salary_cost": total_salary_cost,
         "revenue_is_allocated": revenue_is_allocated,
         "revenue_attributed": revenue_attributed,
@@ -2489,13 +2506,26 @@ elif section == "employee_portal":
                 breaks_are_paid = summary["breaks_are_paid"]
 
                 with st.container(border=True):
+                    # Quality-adjusted, not pure hours: this used to be
+                    # `performance_while_working_pct` alone, which reads
+                    # 100% for ANY shift with no idle time captured — a
+                    # clean hours log with heavy wastage looked identical to
+                    # a genuinely good shift. Performance x Quality (an
+                    # OEE-style decomposition) folds wastage/QC failures in,
+                    # so it no longer does. True efficiency (below) stays a
+                    # pure cost-of-time view on purpose — see §A5.
                     st.markdown(
-                        f"<div class='kpi-label'>Performance while working (your number)</div>"
-                        f"<div class='kpi-value'>{fmt_pct(rolled['performance_while_working_pct'])}</div>"
+                        f"<div class='kpi-label'>Performance while working (quality-adjusted)</div>"
+                        f"<div class='kpi-value'>{fmt_pct(summary['quality_adjusted_performance_pct'])}</div>"
                         f"<div style='color:{COLORS['text_soft']}; font-size:0.85rem; margin-top:2px;'>"
-                        f"True efficiency (management's number): {fmt_pct(rolled['true_efficiency_pct'])}</div>",
+                        f"Hours-only performance: {fmt_pct(rolled['performance_while_working_pct'])} "
+                        f"&nbsp;×&nbsp; Quality yield: {fmt_pct(summary['quality_yield_pct'])}"
+                        f"<br>True efficiency (management's number): {fmt_pct(rolled['true_efficiency_pct'])}</div>",
                         unsafe_allow_html=True)
                     st.caption(f"Breaks treated as {'paid' if breaks_are_paid else 'unpaid'} — pending confirmation.")
+                    st.caption("Quality yield = good units (produced, not wasted, and passed QC) ÷ units attempted "
+                               "(produced + wasted). Wastage and QC failures now count against this headline; "
+                               "true efficiency below is unaffected by them by design.")
 
                     render_deduction_bar_and_table(rolled, breaks_are_paid)
                     render_labour_economics_cards(summary)
