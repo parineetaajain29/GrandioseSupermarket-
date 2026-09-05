@@ -1411,6 +1411,25 @@ def render_labour_economics_cards(summary):
                    f"AED {LABOUR_CONFIG['gm_daily_benchmark_aed']:,.0f}/day — variance: {variance_str}")
 
 
+_KPI_TONE_CLASS = {"positive": "pill-up-good", "negative": "pill-up-bad", "neutral": "pill-flat"}
+
+
+def render_kpi_pill_card(label, value, badge_text, tone="neutral"):
+    """One consistent KPI card: label, big value, and a pill badge — every
+    card gets all three slots, so no card ends in an improvised one-off
+    (a live-review fix: the B2B KPI strip used to have three cards ending in
+    a pill and a fourth ending in plain caption text instead).
+
+    `tone` is "positive" | "negative" | "neutral" and picks the pill colour;
+    it says nothing about the arrow/wording in `badge_text`, which the
+    caller composes since only the caller knows what's favourable."""
+    tone_cls = _KPI_TONE_CLASS.get(tone, "pill-flat")
+    st.markdown(f"<div class='kpi-label'>{label}</div>"
+                f"<div class='kpi-value' style='font-size:1.7rem;'>{value}</div>"
+                f"<span class='pill {tone_cls}'>{badge_text}</span>",
+                unsafe_allow_html=True)
+
+
 def render_segmented_bar(segments, height=54, min_frac=0.035, legend_margin="2px 0 10px 0"):
     """
     Proportional horizontal stacked bar with a custom HTML legend below it,
@@ -3092,35 +3111,55 @@ elif section == "b2b_performance":
     avg_collection_days = b2b_calc.weighted_avg_days(receivables_rows)
 
     # ---------------- KPI strip ----------------
+    # Every card renders through render_kpi_pill_card so all four share the
+    # same label / value / badge anatomy — no card improvises its own
+    # closing element (see render_kpi_pill_card's docstring).
     k1, k2, k3, k4 = st.columns(4)
     with k1, st.container(border=True):
-        rev_cls = "pill-up-good" if (revenue_mom_pct or 0) >= 0 else "pill-up-bad"
-        rev_arrow = "↑" if (revenue_mom_pct or 0) >= 0 else "↓"
-        rev_delta_text = "—" if revenue_mom_pct is None else f"{rev_arrow} {fmt_pct(abs(revenue_mom_pct))} MoM"
-        st.markdown(f"<div class='kpi-label'>B2B revenue</div>"
-                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_aed(total_rev)}</div>"
-                    f"<span class='pill {rev_cls}'>{rev_delta_text}</span>",
-                    unsafe_allow_html=True)
+        if revenue_mom_pct is None:
+            rev_badge, rev_tone = "—", "neutral"
+        else:
+            rev_arrow = "↑" if revenue_mom_pct >= 0 else "↓"
+            rev_badge = f"{rev_arrow} {fmt_pct(abs(revenue_mom_pct))} MoM"
+            rev_tone = "positive" if revenue_mom_pct >= 0 else "negative"
+        render_kpi_pill_card("B2B revenue", fmt_aed(total_rev), rev_badge, rev_tone)
+
     with k2, st.container(border=True):
-        margin_cls = "pill-up-good" if (margin_vs_retail_pp or 0) >= 0 else "pill-up-bad"
-        margin_arrow = "↑" if (margin_vs_retail_pp or 0) >= 0 else "↓"
-        margin_delta_text = "—" if margin_vs_retail_pp is None else f"{margin_arrow} {abs(margin_vs_retail_pp):.1f}pt vs retail"
-        st.markdown(f"<div class='kpi-label'>Net margin after service cost</div>"
-                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_pct(company_margin_pct)}</div>"
-                    f"<span class='pill {margin_cls}'>{margin_delta_text}</span>",
-                    unsafe_allow_html=True)
+        if margin_vs_retail_pp is None:
+            margin_badge, margin_tone = "—", "neutral"
+        else:
+            margin_arrow = "↑" if margin_vs_retail_pp >= 0 else "↓"
+            margin_badge = f"{margin_arrow} {abs(margin_vs_retail_pp):.1f}pt vs retail"
+            margin_tone = "positive" if margin_vs_retail_pp >= 0 else "negative"
+        render_kpi_pill_card("Net margin after service cost", fmt_pct(company_margin_pct), margin_badge, margin_tone)
+
     with k3, st.container(border=True):
-        otif_cls = ("pill-ok" if (otif_pct or 0) >= 95 else "pill-warn" if (otif_pct or 0) >= 90 else "pill-risk")
-        st.markdown(f"<div class='kpi-label'>OTIF rate</div>"
-                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_pct(otif_pct)}</div>"
-                    f"<span class='pill {otif_cls}'>{late_deliveries if late_deliveries is not None else '—'} late drops</span>",
-                    unsafe_allow_html=True)
+        if otif_pct is None:
+            otif_tone = "neutral"
+        else:
+            otif_tone = "positive" if otif_pct >= 95 else "negative" if otif_pct < 90 else "neutral"
+        otif_badge = f"{late_deliveries if late_deliveries is not None else '—'} late drops"
+        render_kpi_pill_card("OTIF rate", fmt_pct(otif_pct), otif_badge, otif_tone)
+
     with k4, st.container(border=True):
-        days_text = "—" if avg_collection_days is None else f"{avg_collection_days:.1f} days"
-        st.markdown(f"<div class='kpi-label'>Avg collection days</div>"
-                    f"<div class='kpi-value' style='font-size:1.7rem;'>{days_text}</div>",
-                    unsafe_allow_html=True)
-        st.caption(f"Supplier terms context: net {b2b_data.SUPPLIER_TERMS_DAYS} days.")
+        # Compared against what customers are invoiced on (a receivables
+        # term), not what Grandiose owes its own suppliers — those are two
+        # different counterparties, and pairing collection days with the
+        # supplier term conflated them.
+        days_vs_terms = b2b_calc.pp_delta(avg_collection_days, b2b_data.CUSTOMER_PAYMENT_TERMS_DAYS)
+        if days_vs_terms is None:
+            days_badge, days_tone = "—", "neutral"
+        else:
+            days_arrow = "↑" if days_vs_terms >= 0 else "↓"
+            days_badge = f"{days_arrow} {abs(days_vs_terms):.1f} vs {b2b_data.CUSTOMER_PAYMENT_TERMS_DAYS:.0f}-day terms"
+            # Collecting slower than terms (a positive delta) is unfavourable.
+            days_tone = "negative" if days_vs_terms >= 0 else "positive"
+        days_value = "—" if avg_collection_days is None else f"{avg_collection_days:.1f} days"
+        render_kpi_pill_card("Avg collection days", days_value, days_badge, days_tone)
+        st.caption(f"Illustrative customer terms pending finance confirmation "
+                   f"(Grandiose's own supplier terms are net {b2b_data.SUPPLIER_TERMS_DAYS} days, "
+                   f"a different, payables-side figure).")
+
     st.caption("Retail comparison uses the existing gross-margin benchmark from the Performance Tracker — "
                "pending a true retail net-margin figure from finance.")
 

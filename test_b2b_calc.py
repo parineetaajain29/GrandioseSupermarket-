@@ -162,3 +162,14 @@ def test_at_least_one_account_negative_margin_positive_marginal():
             assert a["uses_idle_capacity"] is True
             assert a["note"]
     assert found, "expected at least one account negative on margin but positive at the margin"
+
+
+def test_avg_collection_days_vs_customer_terms():
+    # The KPI strip compares collection days against what customers are
+    # invoiced on (receivables), not what Grandiose owes its own suppliers
+    # (payables) — pins the exact badge text a live-review fix required.
+    rows = [(a["receivable_amount"], a["days_outstanding"]) for a in b2b_data.ACCOUNTS]
+    avg_days = weighted_avg_days(rows)
+    delta = pp_delta(avg_days, b2b_data.CUSTOMER_PAYMENT_TERMS_DAYS)
+    assert avg_days == pytest.approx(48.31930333817126)
+    assert delta == pytest.approx(18.31930333817126)

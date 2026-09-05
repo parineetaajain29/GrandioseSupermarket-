@@ -24,10 +24,18 @@ PRIOR_MONTH_B2B_REVENUE_AED = 132_000.0
 # finance can provide a directly comparable net number.
 RETAIL_MARGIN_PCT_BENCHMARK = 42.1
 
-# Documented Grandiose supplier terms (see Company Profile: "~95% of
-# suppliers are on net 90 days, 60 days from statement of account") — shown
-# only as context next to average collection days, not used in the calc.
+# Documented Grandiose *supplier* terms (see Company Profile: "~95% of
+# suppliers are on net 90 days, 60 days from statement of account") — what
+# Grandiose owes its OWN suppliers. Kept for reference but not shown next to
+# average collection days: that's a receivables metric (what customers owe
+# Grandiose), and pairing it with a payables term conflates the two sides.
 SUPPLIER_TERMS_DAYS = 90
+
+# What Grandiose's B2B customers are actually invoiced on — the correct
+# receivables-side benchmark for average collection days. No real contract
+# terms exist in the data yet; 30 days is a placeholder illustrative of
+# standard B2B supermarket terms. TODO: CONFIRM WITH FINANCE.
+CUSTOMER_PAYMENT_TERMS_DAYS = 30
 
 # ---- Revenue vs. service cost, 13 weeks (company-wide B2B) ----
 WEEKS = [f"W{i}" for i in range(1, 14)]
