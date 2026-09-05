@@ -1512,13 +1512,18 @@ def render_deduction_bar_and_table(rolled, breaks_are_paid):
 # NAV_ITEMS is (key, label); `key` is what the section routing below
 # compares against, so labels can be reworded without touching routing.
 # ----------------------------------------------------------------------
+# Labels are the nav pill text only — PAGE_META below keeps the full
+# descriptive title for each section's own header. Shortened to "Performance"
+# / "SKU" / "B2B" (from "Performance Tracker" / "SKU Performance" /
+# "B2B Performance") once a 7th item stopped fitting the bar at normal
+# laptop widths — see render_top_nav()'s CSS for the rest of that fix.
 NAV_ITEMS = [
-    ("performance_tracker", "Performance Tracker"),
+    ("performance_tracker", "Performance"),
     ("scenario_resilience", "Scenario & Resilience"),
     ("employee_portal",     "Employee Portal"),
     ("company_profile",     "Company Profile"),
-    ("sku_performance",     "SKU Performance"),
-    ("b2b_performance",     "B2B Performance"),
+    ("sku_performance",     "SKU"),
+    ("b2b_performance",     "B2B"),
     ("data_processor",      "Data Processor"),
 ]
 
@@ -1586,6 +1591,33 @@ st.markdown(f"""
         margin-bottom: 34px;
         padding: 12px 0 10px 0;
     }}
+    /* st.columns sizes each column to a fixed proportional SHARE of the row,
+       not to its own content — with 7 nav items that share is too narrow for
+       several labels at normal widths, so the button text was truncating
+       with an ellipsis, and (since a too-narrow logo column has nowhere to
+       put its own trailing padding) the logo ran straight into the first
+       link with no gap at all. Overriding every column to its natural
+       content width (flex: 0 0 auto) fixes both: no column is ever narrower
+       than the text it holds, and the logo's own padding-right becomes real
+       reserved space again. The icons column gets pushed to the far right
+       with margin-left: auto instead of relying on leftover ratio-space.
+       If the logo+links+icons ever don't fit even at content width (a very
+       narrow laptop window), the row scrolls horizontally rather than
+       clipping anything — the scrollbar itself is hidden so it still reads
+       as a clean single-line bar. */
+    .st-key-gd_topbar [data-testid="stHorizontalBlock"] {{
+        flex-wrap: nowrap !important;
+        gap: 14px !important;
+        overflow-x: auto !important;
+        scrollbar-width: none;
+    }}
+    .st-key-gd_topbar [data-testid="stHorizontalBlock"]::-webkit-scrollbar {{ display: none; }}
+    .st-key-gd_topbar [data-testid="stColumn"] {{
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+    }}
+    .st-key-gd_topbar [data-testid="stColumn"]:last-child {{ margin-left: auto !important; }}
     /* Streamlit wraps each markdown block in containers that carry their own
        margins. Left alone they make the wordmark/icon cells taller than the
        button cells, so centring resolves to a different line for each and the
@@ -1711,12 +1743,14 @@ def render_top_nav():
     """
     st.session_state.setdefault("active_section", NAV_ITEMS[0][0])
 
-    # Link columns are sized from their label length so adding or renaming a
-    # section rebalances the bar automatically instead of overflowing it.
-    link_widths = [0.30 + 0.088 * len(label) for _, label in NAV_ITEMS]
-
+    # st.columns needs some ratio to divide the row by, but the CSS above
+    # overrides every column to its own natural content width regardless of
+    # these numbers — sizing columns by label length turned out not to scale
+    # as items were added (see the CSS comment), so the actual fit no longer
+    # depends on getting this ratio right. Equal weights are just the
+    # simplest input that satisfies st.columns' API.
     with st.container(key="gd_topbar"):
-        cols = st.columns([2.1, *link_widths, 0.7], vertical_alignment="center")
+        cols = st.columns([1] * (len(NAV_ITEMS) + 2), vertical_alignment="center")
         cols[0].markdown("<div class='gd-logo'>Grandiose</div>", unsafe_allow_html=True)
 
         for col, (key, label) in zip(cols[1:], NAV_ITEMS):
