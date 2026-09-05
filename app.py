@@ -35,6 +35,8 @@ from supabase import create_client
 import sku_data
 import labour_calc
 from labour_config import LABOUR_CONFIG
+import b2b_data
+import b2b_calc
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -1409,61 +1411,70 @@ def render_labour_economics_cards(summary):
                    f"AED {LABOUR_CONFIG['gm_daily_benchmark_aed']:,.0f}/day — variance: {variance_str}")
 
 
-def render_deduction_bar_and_table(rolled, breaks_are_paid):
+def render_segmented_bar(segments, height=54, min_frac=0.035, legend_margin="2px 0 10px 0"):
     """
-    §A10.2-3 — the proportional deduction bar and the deduction table below
-    it. The bar's legend is custom HTML, not a Plotly legend: five segment
-    names plus a "Hours" axis title and tick numbers all fighting for the
-    same cramped strip is what made the Plotly legend unreadable, so the
-    legend lives in the page below the chart instead, with the axis hidden
-    entirely (the exact hours are already in the legend and the table).
+    Proportional horizontal stacked bar with a custom HTML legend below it,
+    instead of a Plotly legend — a Plotly legend collides with segment
+    labels and axis ticks on a bar this compact (the labour-efficiency
+    deduction bar was unreadable for exactly this reason), so the legend is
+    plain HTML underneath and the axis is hidden entirely.
 
-    A segment with real but tiny hours (a few minutes of downtime) gets a
-    minimum visual width so it isn't an invisible hairline — only the
-    on-screen bar is padded, using hours borrowed from the largest segment;
-    the legend and the deduction table always show the true, unpadded hours.
+    `segments` is a list of (label, value, color) with `label` already
+    formatted for display (e.g. "Productive (8.58h)"). Segments with
+    value <= 0 are dropped. A non-zero segment below `min_frac` of the
+    total gets a minimum visual width so it isn't an invisible hairline —
+    only the on-screen bar is padded (borrowing from the largest segment);
+    the legend text always shows the true, unpadded value.
     """
-    raw_segments = [
-        ("Productive", rolled["bar_productive_hours"], COLORS["primary"]),
-        ("Changeover", rolled["changeover_hours"], COLORS["primary_deep"]),
-        ("Downtime", rolled["downtime_hours"], COLORS["warning"]),
-        ("Breaks", rolled["break_hours"], COLORS["secondary"]),
-        ("Idle", rolled["idle_waiting_hours"], COLORS["tertiary"]),
-    ]
-    total_hours = sum(hrs for _, hrs, _ in raw_segments) or 1.0
-    floor_hours = 0.035 * total_hours
-    display_hours = []
+    visible = [(label, value, color) for label, value, color in segments if value and value > 0]
+    if not visible:
+        return
+    total = sum(v for _, v, _ in visible)
+    floor = min_frac * total
+    display_values = []
     pad_total = 0.0
-    for _, hrs, _ in raw_segments:
-        if 0 < hrs < floor_hours:
-            display_hours.append(floor_hours)
-            pad_total += floor_hours - hrs
+    for _, v, _ in visible:
+        if v < floor:
+            display_values.append(floor)
+            pad_total += floor - v
         else:
-            display_hours.append(hrs)
+            display_values.append(v)
     if pad_total > 0:
-        largest_idx = max(range(len(raw_segments)), key=lambda i: raw_segments[i][1])
-        display_hours[largest_idx] = max(display_hours[largest_idx] - pad_total, 0.0)
+        largest_idx = max(range(len(visible)), key=lambda i: visible[i][1])
+        display_values[largest_idx] = max(display_values[largest_idx] - pad_total, 0.0)
 
-    fig_bar = go.Figure()
-    for (label, hrs, color), disp in zip(raw_segments, display_hours):
-        fig_bar.add_trace(go.Bar(
+    fig = go.Figure()
+    for (label, value, color), disp in zip(visible, display_values):
+        fig.add_trace(go.Bar(
             x=[disp], y=[""], orientation="h", marker_color=color, marker_line_width=0,
-            showlegend=False, hovertext=[f"{label}: {fmt_hours(hrs)}h"], hoverinfo="text",
+            showlegend=False, hovertext=[label], hoverinfo="text",
         ))
-    fig_bar.update_layout(**PLOTLY_DARK, height=54, barmode="stack", showlegend=False,
-                          margin=dict(l=4, r=4, t=4, b=4),
-                          xaxis=dict(visible=False), yaxis=dict(visible=False))
-    st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
+    fig.update_layout(**PLOTLY_DARK, height=height, barmode="stack", showlegend=False,
+                      margin=dict(l=4, r=4, t=4, b=4),
+                      xaxis=dict(visible=False), yaxis=dict(visible=False))
+    st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
     legend_html = "".join(
         f"<span style='display:inline-flex; align-items:center; gap:5px; margin:2px 16px 2px 0;'>"
         f"<span style='width:10px; height:10px; border-radius:2px; background-color:{color}; "
         f"display:inline-block; flex-shrink:0;'></span>"
-        f"<span style='color:{COLORS['text_soft']}; font-size:0.76rem;'>{label} ({fmt_hours(hrs)}h)</span></span>"
-        for label, hrs, color in raw_segments
+        f"<span style='color:{COLORS['text_soft']}; font-size:0.76rem;'>{label}</span></span>"
+        for label, _, color in visible
     )
-    st.markdown(f"<div style='display:flex; flex-wrap:wrap; margin:2px 0 14px 0;'>{legend_html}</div>",
+    st.markdown(f"<div style='display:flex; flex-wrap:wrap; margin:{legend_margin};'>{legend_html}</div>",
                 unsafe_allow_html=True)
+
+
+def render_deduction_bar_and_table(rolled, breaks_are_paid):
+    """§A10.2-3 — the proportional deduction bar (via render_segmented_bar)
+    and the deduction table below it."""
+    render_segmented_bar([
+        (f"Productive ({fmt_hours(rolled['bar_productive_hours'])}h)", rolled["bar_productive_hours"], COLORS["primary"]),
+        (f"Changeover ({fmt_hours(rolled['changeover_hours'])}h)", rolled["changeover_hours"], COLORS["primary_deep"]),
+        (f"Downtime ({fmt_hours(rolled['downtime_hours'])}h)", rolled["downtime_hours"], COLORS["warning"]),
+        (f"Breaks ({fmt_hours(rolled['break_hours'])}h)", rolled["break_hours"], COLORS["secondary"]),
+        (f"Idle ({fmt_hours(rolled['idle_waiting_hours'])}h)", rolled["idle_waiting_hours"], COLORS["tertiary"]),
+    ], legend_margin="2px 0 14px 0")
 
     ded_rows = [
         ("Paid hours", rolled["paid_hours"], False),
@@ -1501,6 +1512,7 @@ NAV_ITEMS = [
     ("employee_portal",     "Employee Portal"),
     ("company_profile",     "Company Profile"),
     ("sku_performance",     "SKU Performance"),
+    ("b2b_performance",     "B2B Performance"),
     ("data_processor",      "Data Processor"),
 ]
 
@@ -1519,6 +1531,9 @@ PAGE_META = {
                             "27 Jul personal meeting with the GM."),
     "sku_performance":     ("Bakery Product Performance",
                             "Product and SKU performance across the six bakery divisions."),
+    "b2b_performance":     ("B2B Client Performance",
+                            "Flour Country's B2B expansion — account and location level. "
+                            "Bakery division only, catering excluded."),
     "data_processor":      ("Data Processor",
                             "Drop in rough Excel, PDF, or Word files — get back a cleaned, "
                             "evaluated Excel report."),
@@ -3015,6 +3030,229 @@ elif section == "sku_performance":
     st.caption("Figures are illustrative pending Grandiose-provided SKU actuals. "
                "Contribution % is each SKU's share of total bakery sales; rank is by "
                "sales value across all divisions.")
+
+# ========================================================================
+# SECTION E — B2B CLIENT PERFORMANCE
+# ========================================================================
+elif section == "b2b_performance":
+    accounts = b2b_data.ACCOUNTS
+
+    total_rev = b2b_calc.total_revenue(a["revenue"] for a in accounts)
+    total_service_cost = b2b_calc.total_of(a["service_cost_full"] for a in accounts)
+    company_margin_pct = b2b_calc.net_margin_pct(total_rev, total_service_cost)
+    revenue_mom_pct = b2b_calc.pct_change(total_rev, b2b_data.PRIOR_MONTH_B2B_REVENUE_AED)
+    margin_vs_retail_pp = b2b_calc.pp_delta(company_margin_pct, b2b_data.RETAIL_MARGIN_PCT_BENCHMARK)
+
+    total_on_time = b2b_calc.total_of(a["on_time_count"] for a in accounts)
+    total_deliveries = b2b_calc.total_of(a["total_deliveries"] for a in accounts)
+    otif_pct = b2b_calc.otif_rate_pct(total_on_time, total_deliveries)
+    late_deliveries = b2b_calc.late_count(total_deliveries, total_on_time)
+
+    receivables_rows = [(a["receivable_amount"], a["days_outstanding"]) for a in accounts]
+    avg_collection_days = b2b_calc.weighted_avg_days(receivables_rows)
+
+    # ---------------- KPI strip ----------------
+    k1, k2, k3, k4 = st.columns(4)
+    with k1, st.container(border=True):
+        rev_cls = "pill-up-good" if (revenue_mom_pct or 0) >= 0 else "pill-up-bad"
+        rev_arrow = "↑" if (revenue_mom_pct or 0) >= 0 else "↓"
+        rev_delta_text = "—" if revenue_mom_pct is None else f"{rev_arrow} {fmt_pct(abs(revenue_mom_pct))} MoM"
+        st.markdown(f"<div class='kpi-label'>B2B revenue</div>"
+                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_aed(total_rev)}</div>"
+                    f"<span class='pill {rev_cls}'>{rev_delta_text}</span>",
+                    unsafe_allow_html=True)
+    with k2, st.container(border=True):
+        margin_cls = "pill-up-good" if (margin_vs_retail_pp or 0) >= 0 else "pill-up-bad"
+        margin_arrow = "↑" if (margin_vs_retail_pp or 0) >= 0 else "↓"
+        margin_delta_text = "—" if margin_vs_retail_pp is None else f"{margin_arrow} {abs(margin_vs_retail_pp):.1f}pt vs retail"
+        st.markdown(f"<div class='kpi-label'>Net margin after service cost</div>"
+                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_pct(company_margin_pct)}</div>"
+                    f"<span class='pill {margin_cls}'>{margin_delta_text}</span>",
+                    unsafe_allow_html=True)
+    with k3, st.container(border=True):
+        otif_cls = ("pill-ok" if (otif_pct or 0) >= 95 else "pill-warn" if (otif_pct or 0) >= 90 else "pill-risk")
+        st.markdown(f"<div class='kpi-label'>OTIF rate</div>"
+                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_pct(otif_pct)}</div>"
+                    f"<span class='pill {otif_cls}'>{late_deliveries if late_deliveries is not None else '—'} late drops</span>",
+                    unsafe_allow_html=True)
+    with k4, st.container(border=True):
+        days_text = "—" if avg_collection_days is None else f"{avg_collection_days:.1f} days"
+        st.markdown(f"<div class='kpi-label'>Avg collection days</div>"
+                    f"<div class='kpi-value' style='font-size:1.7rem;'>{days_text}</div>",
+                    unsafe_allow_html=True)
+        st.caption(f"Supplier terms context: net {b2b_data.SUPPLIER_TERMS_DAYS} days.")
+    st.caption("Retail comparison uses the existing gross-margin benchmark from the Performance Tracker — "
+               "pending a true retail net-margin figure from finance.")
+
+    # ---------------- Revenue vs. service cost, 13 weeks ----------------
+    st.markdown("#### Revenue vs. service cost — 13 weeks")
+    with st.container(border=True):
+        fig_rc = go.Figure()
+        fig_rc.add_trace(go.Scatter(x=b2b_data.WEEKS, y=b2b_data.WEEKLY_SERVICE_COST_AED,
+                                     mode="lines", name="Service cost",
+                                     line=dict(color=COLORS["text_soft"], width=2)))
+        fig_rc.add_trace(go.Scatter(x=b2b_data.WEEKS, y=b2b_data.WEEKLY_B2B_REVENUE_AED,
+                                     mode="lines", name="Revenue",
+                                     line=dict(color=COLORS["primary"], width=2.5),
+                                     fill="tonexty", fillcolor=hex_to_rgba(COLORS["primary"], 0.12)))
+        fig_rc.update_layout(**PLOTLY_DARK, height=280,
+                              yaxis=dict(gridcolor=GRID_COLOR, tickprefix="AED "),
+                              xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                              legend=dict(orientation="h", y=-0.15, font=dict(color=COLORS["text_soft"])))
+        st.plotly_chart(fig_rc, width='stretch', config={"displayModeBar": False})
+        st.caption("The gap between the lines is your margin. Watch for convergence.")
+
+    # ---------------- Capacity economics ----------------
+    st.markdown("#### Capacity economics")
+    with st.container(border=True):
+        retail_pct, b2b_pct, idle_pct = b2b_calc.normalize_shares_pct([
+            b2b_data.OVEN_CAPACITY_RETAIL_PCT, b2b_data.OVEN_CAPACITY_B2B_PCT, b2b_data.OVEN_CAPACITY_IDLE_PCT,
+        ])
+        st.markdown("<div class='kpi-label'>Oven capacity — retail / B2B / idle</div>", unsafe_allow_html=True)
+        render_segmented_bar([
+            (f"Retail ({retail_pct:.1f}%)", retail_pct, COLORS["secondary"]),
+            (f"B2B ({b2b_pct:.1f}%)", b2b_pct, COLORS["primary"]),
+            (f"Idle ({idle_pct:.1f}%)", idle_pct, COLORS["border"]),
+        ])
+        st.caption(f"Currently ~{b2b_calc.utilisation_pct(retail_pct, b2b_pct):.1f}% utilised.")
+
+        order = b2b_data.MARGINAL_EXAMPLE_ORDER
+        marginal_idle = b2b_calc.marginal_contribution(
+            order["order_value"], order["ingredient_cost"], order["packaging_cost"], order["delivery_cost"],
+            **b2b_data.MARGINAL_EXAMPLE_IDLE)
+        marginal_overtime = b2b_calc.marginal_contribution(
+            order["order_value"], order["ingredient_cost"], order["packaging_cost"], order["delivery_cost"],
+            **b2b_data.MARGINAL_EXAMPLE_OVERTIME)
+        overtime_orders = b2b_calc.count_overtime_orders(o["forces_overtime"] for o in b2b_data.NEXT_WEEK_ORDERS)
+
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.markdown(f"<div class='kpi-label'>Marginal margin — fills idle capacity</div>"
+                        f"<div class='kpi-value' style='font-size:1.4rem;'>{fmt_aed(marginal_idle)}</div>",
+                        unsafe_allow_html=True)
+        with mc2:
+            st.markdown(f"<div class='kpi-label'>Marginal margin — forces overtime</div>"
+                        f"<div class='kpi-value' style='font-size:1.4rem;'>{fmt_aed(marginal_overtime)}</div>",
+                        unsafe_allow_html=True)
+        with mc3:
+            st.markdown(f"<div class='kpi-label'>Next week's orders in overtime slots</div>"
+                        f"<div class='kpi-value' style='font-size:1.4rem;'>{overtime_orders}</div>",
+                        unsafe_allow_html=True)
+        st.caption("Marginal view assumes fixed costs are absorbed by retail volume. Holds while utilisation stays low.")
+        st.caption("Oven-capacity split is a placeholder pending Grandiose-confirmed per-channel figures.")
+
+    # ---------------- Concentration risk ----------------
+    st.markdown("#### Concentration risk")
+    with st.container(border=True):
+        revenues = [a["revenue"] for a in accounts]
+        top2_share = b2b_calc.top_n_share_pct(revenues, n=2)
+        top2_sorted = sorted(accounts, key=lambda a: a["revenue"], reverse=True)[:2]
+        biggest = top2_sorted[0]
+        biggest_share = b2b_calc.safe_divide(biggest["revenue"], total_rev, 100.0)
+
+        st.markdown(f"<div class='kpi-label'>Top-2 accounts' share of B2B revenue</div>"
+                    f"<div class='kpi-value'>{fmt_pct(top2_share)}</div>", unsafe_allow_html=True)
+        render_segmented_bar([
+            (f"{a['client']} ({b2b_calc.safe_divide(a['revenue'], total_rev, 100.0):.1f}%)",
+             a["revenue"], CATEGORICAL[i % len(CATEGORICAL)])
+            for i, a in enumerate(sorted(accounts, key=lambda a: a["revenue"], reverse=True))
+        ])
+        names = " and ".join(a["client"] for a in top2_sorted)
+        st.caption(f"{names} together account for {fmt_pct(top2_share)} of B2B revenue — "
+                   f"losing {biggest['client']} alone would remove {fmt_pct(biggest_share)} of B2B revenue overnight.")
+
+    # ---------------- Account profitability table ----------------
+    st.markdown("#### Account profitability")
+    search = st.text_input(
+        "Search client or location", placeholder="Search client or location…",
+        label_visibility="collapsed", key="b2b_account_search",
+    ).strip().lower()
+
+    table_rows = []
+    footnotes = []
+    for a in accounts:
+        if search and search not in a["client"].lower() and search not in a["location"].lower():
+            continue
+        margin = b2b_calc.account_margin(a["revenue"], a["service_cost_full"])
+        marginal = b2b_calc.marginal_contribution(
+            a["revenue"], a["ingredient_cost"], a["packaging_cost"], a["delivery_cost"],
+            a["incremental_labour_cost"], a["overtime_premium"])
+        otif = b2b_calc.otif_rate_pct(a["on_time_count"], a["total_deliveries"])
+        table_rows.append({
+            "Client": a["client"], "Location": a["location"], "Delivery": a["delivery_frequency"],
+            "Revenue": a["revenue"], "Margin": margin, "Marginal": marginal, "OTIF": otif,
+        })
+        if a.get("note"):
+            footnotes.append((a["client"], a["note"]))
+
+    if table_rows:
+        st.dataframe(
+            pd.DataFrame(table_rows), width='stretch', hide_index=True,
+            column_config={
+                "Revenue": st.column_config.NumberColumn("Revenue (AED)", format="%.2f"),
+                "Margin": st.column_config.NumberColumn("Margin (AED)", format="%.2f"),
+                "Marginal": st.column_config.NumberColumn("Marginal (AED)", format="%.2f"),
+                "OTIF": st.column_config.NumberColumn("OTIF (%)", format="%.1f%%"),
+            },
+        )
+    else:
+        st.caption(f"No client or location matches “{search}”.")
+    st.caption("The Marginal column is the point of the table: an account negative on Margin can still be "
+               "positive on Marginal if it fills otherwise-idle capacity. Dropping it on Margin alone would "
+               "be the wrong call.")
+    for client, note in footnotes:
+        st.caption(f"† {client}: {note}")
+
+    # ---------------- Receivables ----------------
+    st.markdown("#### Receivables")
+    total_outstanding = b2b_calc.total_outstanding(receivables_rows)
+    past_60 = b2b_calc.past_60_days_total(receivables_rows)
+    buckets = b2b_calc.aging_buckets(receivables_rows)
+
+    rc1, rc2 = st.columns(2)
+    with rc1, st.container(border=True):
+        st.markdown(f"<div class='kpi-label'>Total outstanding</div>"
+                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_aed(total_outstanding)}</div>",
+                    unsafe_allow_html=True)
+    with rc2, st.container(border=True):
+        st.markdown(f"<div class='kpi-label'>Past 60 days</div>"
+                    f"<div class='kpi-value' style='font-size:1.7rem;'>{fmt_aed(past_60)}</div>",
+                    unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown("<div class='kpi-label'>Aging buckets</div>", unsafe_allow_html=True)
+        bucket_colors = {"0-30": COLORS["success"], "31-60": COLORS["secondary"],
+                          "61-90": COLORS["warning"], "90+": COLORS["danger"]}
+        render_segmented_bar([
+            (f"{label} days ({fmt_aed(amount)})", amount, bucket_colors[label])
+            for label, amount in buckets.items()
+        ])
+        receivables_df = pd.DataFrame([
+            {"Client": a["client"], "Location": a["location"],
+             "Outstanding (AED)": a["receivable_amount"], "Days outstanding": a["days_outstanding"]}
+            for a in accounts
+        ])
+        st.download_button(
+            "Download receivables (CSV)", data=receivables_df.to_csv(index=False),
+            file_name=f"Grandiose_B2B_Receivables_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv", width='stretch',
+        )
+
+    # ---------------- Recent deliveries feed ----------------
+    st.markdown("#### Recent deliveries")
+    with st.container(border=True):
+        rows_html = "".join(
+            f"<div class='info-row'>"
+            f"<span style='flex:1;'><strong>{d['client']}</strong> — {d['location']} · {d['time']}</span>"
+            f"<span class='pill {'pill-warn' if d['status'] == 'Late' else 'pill-ok'}' style='margin-right:10px;'>{d['status']}</span>"
+            f"<span style='color:{COLORS['text_soft']}; min-width:80px; text-align:right;'>{fmt_aed(d['value'])}</span>"
+            f"</div>"
+            for d in b2b_data.RECENT_DELIVERIES
+        )
+        st.markdown(rows_html, unsafe_allow_html=True)
+
+    st.caption("Figures shown are illustrative benchmarks pending Grandiose-provided actuals. "
+               "No catering metrics — bakery B2B only.")
 
 elif section == "data_processor":
     ai_client = get_anthropic_client()
